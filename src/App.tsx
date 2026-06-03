@@ -31,14 +31,14 @@ import {
   PaymentRecord,
   simulateBackendPaymentVerification
 } from "./paymentProvider";
+import { supabase } from "./supabaseClient";
 
 type Role = "ADMIN" | "VENDOR" | "CUSTOMER";
 
 type AuthUser = {
-  id: number;
+  id: string;
   name: string;
   email: string;
-  password: string;
   role: Role;
   phone?: string;
   address?: string;
@@ -51,8 +51,8 @@ type AuthUser = {
 };
 
 type VendorApplication = {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   businessName: string;
   ownerName: string;
@@ -141,7 +141,7 @@ type VendorDeliveryStatus = "New" | "Confirmed" | "Preparing" | "Shipped" | "Del
 type Order = {
   id: number;
   orderNumber: string;
-  customerId: number;
+  customerId: string;
   customerName: string;
   phone: string;
   address: string;
@@ -181,7 +181,7 @@ type PayoutRequest = {
 
 type ConversationMessage = {
   id: number;
-  senderId: number;
+  senderId: string;
   senderRole: Role;
   senderName: string;
   body: string;
@@ -192,7 +192,7 @@ type ConversationMessage = {
 
 type Conversation = {
   id: number;
-  customerId: number;
+  customerId: string;
   customerName: string;
   vendor: string;
   productId?: number;
@@ -214,6 +214,41 @@ type StoreItem = {
   description?: string;
 };
 
+type ProfileRow = {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  role: Role;
+  status: "ACTIVE" | "SUSPENDED";
+  created_at: string;
+  updated_at: string;
+};
+
+type StoreRow = {
+  id: string;
+  vendor_user_id: string;
+  name: string;
+  description: string;
+  logo_url: string | null;
+  banner_url: string | null;
+  status: "ACTIVE" | "SUSPENDED";
+};
+
+type VendorApplicationRow = {
+  id: string;
+  user_id: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  business_name: string;
+  owner_name: string;
+  phone: string;
+  email: string;
+  address: string;
+  description: string;
+  category: string;
+  created_at: string;
+};
+
 const currency = new Intl.NumberFormat("en-GH", {
   style: "currency",
   currency: "GHS",
@@ -227,6 +262,40 @@ const PICKUP_DELIVERY_FEE_PER_VENDOR = 10;
 const PLATFORM_COMMISSION_RATE = 0.1;
 
 const initialProducts: Product[] = [];
+
+function mapProfileToUser(profile: ProfileRow, store?: StoreRow | null): AuthUser {
+  return {
+    id: profile.id,
+    name: profile.full_name,
+    email: profile.email,
+    role: profile.role,
+    phone: profile.phone ?? "",
+    storeName: store?.name,
+    storeDescription: store?.description,
+    storeLogoUrl: store?.logo_url ?? undefined,
+    storeBannerUrl: store?.banner_url ?? undefined,
+    vendorStatus: profile.role === "VENDOR" ? (store?.status === "SUSPENDED" ? "SUSPENDED" : "APPROVED") : undefined
+  };
+}
+
+function mapVendorApplication(row: VendorApplicationRow): VendorApplication {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    status: row.status,
+    businessName: row.business_name,
+    ownerName: row.owner_name,
+    phone: row.phone,
+    email: row.email,
+    address: row.address,
+    description: row.description,
+    category: row.category,
+    logoName: "Pending storage setup",
+    logoPreview: "",
+    verificationDocumentName: "Pending storage setup",
+    submittedAt: new Date(row.created_at).toLocaleString()
+  };
+}
 
 const categories = [
   ["Electronics", "0 products", "https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=500&q=80"],
@@ -313,6 +382,7 @@ function App() {
   const [activePaymentReference, setActivePaymentReference] = useState<string | null>(null);
   const [confirmedOrderId, setConfirmedOrderId] = useState<number | null>(null);
   const [filters, setFilters] = useState({ category: "All", maxPrice: "" });
+  const [authLoading, setAuthLoading] = useState(true);
   const customerProducts = useMemo(
     () => products.filter((product) => product.status === "Published" && product.stock > 0),
     [products]
@@ -351,6 +421,83 @@ function App() {
         })),
     [products, users]
   );
+  const loadProfile = async (userId: string) => {
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single<ProfileRow>();
+
+    if (profileError || !profile) {
+      setCurrentUser(null);
+      return;
+    }
+
+    const { data: store } = await supabase
+      .from("stores")
+      .select("*")
+      .eq("vendor_user_id", userId)
+      .maybeSingle<StoreRow>();
+
+    const mappedUser = mapProfileToUser(profile, store);
+    setCurrentUser(mappedUser);
+    setUsers((currentUsers) => {
+      const existing = currentUsers.some((user) => user.id === mappedUser.id);
+      return existing
+        ? currentUsers.map((user) => (user.id === mappedUser.id ? mappedUser : user))
+        : [...currentUsers, mappedUser];
+    });
+    if (mappedUser.role === "ADMIN") {
+      setPage("admin");
+    }
+  };
+  const loadVendorApplications = async (user: AuthUser | null) => {
+    if (!user) {
+      setVendorApplications([]);
+      return;
+    }
+    const query = supabase
+      .from("vendor_applications")
+      .select("*")
+      .order("created_at", { ascending: false });
+    const { data, error } = user.role === "ADMIN"
+      ? await query.returns<VendorApplicationRow[]>()
+      : await query.eq("user_id", user.id).returns<VendorApplicationRow[]>();
+
+    if (!error && data) {
+      setVendorApplications(data.map(mapVendorApplication));
+    }
+  };
+  useEffect(() => {
+    let active = true;
+    const initializeAuth = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      if (data.session?.user) {
+        await loadProfile(data.session.user.id);
+      }
+      setAuthLoading(false);
+    };
+
+    initializeAuth();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        void loadProfile(session.user.id);
+      } else {
+        setCurrentUser(null);
+        setVendorApplications([]);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+  useEffect(() => {
+    void loadVendorApplications(currentUser);
+  }, [currentUser?.id, currentUser?.role]);
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
@@ -661,17 +808,29 @@ function App() {
     );
   };
   const unreadMessageCount = getUnreadMessageCount(currentUser, conversations);
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
     setCartItems([]);
     setPage("home");
   };
 
+  if (authLoading) {
+    return (
+      <main className="auth-gate-shell">
+        <section className="empty-state">
+          <ShieldCheck size={42} />
+          <h3>Loading secure session</h3>
+          <p>Checking your MarketHub account before opening the marketplace.</p>
+        </section>
+      </main>
+    );
+  }
+
   if (!currentUser) {
     return (
       <main className="auth-gate-shell">
         <ProfilePage
-          users={users}
           setUsers={setUsers}
           user={currentUser}
           setCurrentUser={setCurrentUser}
@@ -960,7 +1119,7 @@ function renderPage({
     case "ai":
       return <RoleGuard user={currentUser} roles={["ADMIN"]} setPage={setPage}><AiPage /></RoleGuard>;
     case "profile":
-      return <ProfilePage users={users} setUsers={setUsers} user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} />;
+      return <ProfilePage setUsers={setUsers} user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} />;
     case "product":
       return <ProductDetailsPage product={products.find((product) => product.id === selectedProductId) ?? null} setPage={setPage} setSelectedProductId={setSelectedProductId} onAddToCart={addToCart} onMessageVendor={messageVendorFromProduct} />;
     case "order-confirmation":
@@ -2446,7 +2605,7 @@ function AdminDashboard({
     setStatusFilter("All");
     setPageNumber(1);
   };
-  const updateVendorStatus = (vendorId: number, status: "APPROVED" | "SUSPENDED") => {
+  const updateVendorStatus = (vendorId: string, status: "APPROVED" | "SUSPENDED") => {
     const action = status === "SUSPENDED" ? "suspend this vendor" : "reactivate this vendor";
     if (!window.confirm(`Are you sure you want to ${action}?`)) return;
     setUsers((currentUsers) =>
@@ -3303,7 +3462,6 @@ function AiPage() {
 }
 
 function ProfilePage({
-  users,
   setUsers,
   user,
   setCurrentUser,
@@ -3311,7 +3469,6 @@ function ProfilePage({
   vendorApplications,
   setVendorApplications
 }: {
-  users: AuthUser[];
   setUsers: React.Dispatch<React.SetStateAction<AuthUser[]>>;
   user: AuthUser | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>;
@@ -3322,14 +3479,13 @@ function ProfilePage({
   const [mode, setMode] = useState<"login" | "signup">("signup");
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
+  const [authWorking, setAuthWorking] = useState(false);
   const [form, setForm] = useState({
     name: "",
     email: "",
     password: "",
-    role: "CUSTOMER" as Role,
     phone: "",
-    address: "",
-    storeName: ""
+    address: ""
   });
   const [vendorForm, setVendorForm] = useState({
     businessName: "",
@@ -3351,94 +3507,119 @@ function ProfilePage({
     setAuthSuccess("");
   };
 
-  const submitAuth = (event: FormEvent) => {
+  const submitAuth = async (event: FormEvent) => {
     event.preventDefault();
     setAuthError("");
     setAuthSuccess("");
+    setAuthWorking(true);
 
     if (mode === "login") {
-      const foundUser = users.find(
-        (existingUser) =>
-          existingUser.email.toLowerCase() === form.email.trim().toLowerCase() &&
-          existingUser.password === form.password
-      );
+      const { error } = await supabase.auth.signInWithPassword({
+        email: form.email.trim().toLowerCase(),
+        password: form.password
+      });
 
-      if (!foundUser) {
-        setAuthError("Invalid email or password.");
+      if (error) {
+        setAuthError(error.message);
+        setAuthWorking(false);
         return;
       }
 
-      if (foundUser.role === "VENDOR" && foundUser.vendorStatus === "SUSPENDED") {
-        setAuthError("This vendor account is suspended. Contact an admin.");
-        return;
-      }
-
-      setCurrentUser(foundUser);
-      if (foundUser.role === "ADMIN") setPage("admin");
-      setAuthSuccess(`Logged in as ${roleLabels[foundUser.role]}.`);
+      setAuthSuccess("Logged in securely.");
+      setAuthWorking(false);
       return;
     }
 
-    const validationError = validateSignup(form, users);
+    const validationError = validateSignup(form);
     if (validationError) {
       setAuthError(validationError);
+      setAuthWorking(false);
       return;
     }
 
-    const nextUser: AuthUser = {
-      id: Date.now(),
-      name: form.name.trim(),
+    const { data, error } = await supabase.auth.signUp({
       email: form.email.trim().toLowerCase(),
       password: form.password,
-      role: form.role,
-      phone: form.phone.trim(),
-      address: form.address.trim(),
-      storeName: form.role === "VENDOR" ? form.storeName.trim() : undefined,
-      vendorStatus: form.role === "VENDOR" ? "PENDING" : undefined
-    };
+      options: {
+        data: {
+          full_name: form.name.trim()
+        }
+      }
+    });
 
-    setUsers((currentUsers) => [...currentUsers, nextUser]);
-    setCurrentUser(nextUser);
-    if (nextUser.role === "ADMIN") setPage("admin");
-    setAuthSuccess(
-      nextUser.role === "VENDOR"
-        ? "Vendor account created. Admin approval is required before the store appears publicly."
-        : `${roleLabels[nextUser.role]} account created.`
-    );
+    if (error) {
+      setAuthError(error.message);
+      setAuthWorking(false);
+      return;
+    }
+
+    if (data.session?.user && form.phone.trim()) {
+      await supabase
+        .from("profiles")
+        .update({ phone: form.phone.trim() })
+        .eq("id", data.session.user.id);
+    }
+
+    setAuthSuccess(data.session ? "Customer account created securely." : "Customer account created. Check your email to confirm your account, then log in.");
+    setAuthWorking(false);
   };
 
-  const updateProfile = (event: FormEvent) => {
+  const updateProfile = async (event: FormEvent) => {
     event.preventDefault();
     if (!user) return;
+    setAuthError("");
+    setAuthSuccess("");
+    setAuthWorking(true);
 
     if (!form.name.trim()) {
       setAuthError("Name is required.");
+      setAuthWorking(false);
       return;
     }
 
     if (!isValidEmail(form.email)) {
       setAuthError("Enter a valid email address.");
+      setAuthWorking(false);
       return;
     }
 
-    if (users.some((existingUser) => existingUser.id !== user.id && existingUser.email.toLowerCase() === form.email.trim().toLowerCase())) {
-      setAuthError("Another account already uses this email.");
+    const nextEmail = form.email.trim().toLowerCase();
+    if (nextEmail !== user.email) {
+      const { error: emailError } = await supabase.auth.updateUser({ email: nextEmail });
+      if (emailError) {
+        setAuthError(emailError.message);
+        setAuthWorking(false);
+        return;
+      }
+    }
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        full_name: form.name.trim(),
+        email: nextEmail,
+        phone: form.phone.trim() || null
+      })
+      .eq("id", user.id);
+
+    if (error) {
+      setAuthError(error.message);
+      setAuthWorking(false);
       return;
     }
 
     const updatedUser: AuthUser = {
       ...user,
       name: form.name.trim(),
-      email: form.email.trim().toLowerCase(),
-      phone: form.phone.trim(),
-      address: form.address.trim(),
-      storeName: user.role === "VENDOR" ? form.storeName.trim() : user.storeName
+      email: nextEmail,
+      phone: form.phone.trim()
     };
 
     setUsers((currentUsers) => currentUsers.map((existingUser) => (existingUser.id === user.id ? updatedUser : existingUser)));
     setCurrentUser(updatedUser);
     setAuthSuccess("Profile updated.");
     setAuthError("");
+    setAuthWorking(false);
   };
 
   const updateVendorField = (field: keyof typeof vendorForm, value: string) => {
@@ -3463,7 +3644,7 @@ function ProfilePage({
     }));
   };
 
-  const submitVendorApplication = (event: FormEvent) => {
+  const submitVendorApplication = async (event: FormEvent) => {
     event.preventDefault();
     if (!user || user.role !== "CUSTOMER") {
       setVendorMessage({ error: "Only registered customers can apply to become vendors.", success: "" });
@@ -3485,29 +3666,28 @@ function ProfilePage({
       return;
     }
 
-    const nextApplication: VendorApplication = {
-      id: Date.now(),
-      userId: user.id,
-      status: "PENDING",
-      businessName: vendorForm.businessName.trim(),
-      ownerName: vendorForm.ownerName.trim(),
-      phone: vendorForm.phone.trim(),
-      email: vendorForm.email.trim().toLowerCase(),
-      address: vendorForm.address.trim(),
-      description: vendorForm.description.trim(),
-      category: vendorForm.category,
-      logoName: vendorForm.logoName,
-      logoPreview: vendorForm.logoPreview,
-      verificationDocumentName: vendorForm.verificationDocumentName,
-      submittedAt: new Date().toLocaleString()
-    };
+    const { data, error } = await supabase
+      .from("vendor_applications")
+      .insert({
+        user_id: user.id,
+        business_name: vendorForm.businessName.trim(),
+        owner_name: vendorForm.ownerName.trim(),
+        phone: vendorForm.phone.trim(),
+        email: vendorForm.email.trim().toLowerCase(),
+        address: vendorForm.address.trim(),
+        description: vendorForm.description.trim(),
+        category: vendorForm.category,
+        status: "PENDING"
+      })
+      .select("*")
+      .single<VendorApplicationRow>();
 
-    setVendorApplications((currentApplications) => [...currentApplications, nextApplication]);
-    setUsers((currentUsers) =>
-      currentUsers.map((existingUser) =>
-        existingUser.id === user.id ? { ...existingUser, vendorStatus: "PENDING" } : existingUser
-      )
-    );
+    if (error || !data) {
+      setVendorMessage({ error: error?.message ?? "Could not submit vendor application.", success: "" });
+      return;
+    }
+
+    setVendorApplications((currentApplications) => [mapVendorApplication(data), ...currentApplications]);
     setCurrentUser({ ...user, vendorStatus: "PENDING" });
     setVendorMessage({ error: "", success: "Vendor application submitted for admin review." });
   };
@@ -3518,10 +3698,8 @@ function ProfilePage({
         name: user.name,
         email: user.email,
         password: "",
-        role: user.role,
         phone: user.phone ?? "",
-        address: user.address ?? "",
-        storeName: user.storeName ?? ""
+        address: user.address ?? ""
       });
     }
   }, [user]);
@@ -3549,11 +3727,8 @@ function ProfilePage({
               <input value={form.email} onChange={(event) => updateField("email", event.target.value)} placeholder="Email address" />
               <input value={form.phone} onChange={(event) => updateField("phone", event.target.value)} placeholder="Phone number" />
               <input value={form.address} onChange={(event) => updateField("address", event.target.value)} placeholder="Address" />
-              {user.role === "VENDOR" ? (
-                <input value={form.storeName} onChange={(event) => updateField("storeName", event.target.value)} placeholder="Store name" />
-              ) : null}
               <FormMessage error={authError} success={authSuccess} />
-              <button>Update Profile</button>
+              <button disabled={authWorking}>{authWorking ? "Saving..." : "Update Profile"}</button>
             </form>
             {user.role === "CUSTOMER" ? (
               <VendorApplicationForm
@@ -3587,10 +3762,6 @@ function ProfilePage({
           {mode === "signup" ? (
             <>
               <input value={form.name} onChange={(event) => updateField("name", event.target.value)} placeholder="Full name" />
-              <select value={form.role} onChange={(event) => updateField("role", event.target.value as Role)}>
-                <option value="CUSTOMER">Customer</option>
-                <option value="ADMIN">Admin</option>
-              </select>
             </>
           ) : null}
           <input value={form.email} onChange={(event) => updateField("email", event.target.value)} placeholder="Email address" />
@@ -3599,13 +3770,10 @@ function ProfilePage({
             <>
               <input value={form.phone} onChange={(event) => updateField("phone", event.target.value)} placeholder="Phone number" />
               <input value={form.address} onChange={(event) => updateField("address", event.target.value)} placeholder="Address" />
-              {form.role === "VENDOR" ? (
-                <input value={form.storeName} onChange={(event) => updateField("storeName", event.target.value)} placeholder="Store name" />
-              ) : null}
             </>
           ) : null}
           <FormMessage error={authError} success={authSuccess} />
-          <button>{mode === "signup" ? "Create Account" : "Log In"}</button>
+          <button disabled={authWorking}>{authWorking ? "Please wait..." : mode === "signup" ? "Create Customer Account" : "Log In"}</button>
         </form>
         <div className="auth-card">
           <ShieldCheck size={28} />
@@ -3621,16 +3789,10 @@ function validateSignup(form: {
   name: string;
   email: string;
   password: string;
-  role: Role;
-  storeName: string;
-}, users: AuthUser[]) {
+}) {
   if (!form.name.trim()) return "Full name is required.";
   if (!isValidEmail(form.email)) return "Enter a valid email address.";
-  if (users.some((user) => user.email.toLowerCase() === form.email.trim().toLowerCase())) {
-    return "An account with this email already exists.";
-  }
   if (form.password.length < 8) return "Password must be at least 8 characters.";
-  if (form.role === "VENDOR" && !form.storeName.trim()) return "Store name is required for vendor accounts.";
   return "";
 }
 

@@ -5,7 +5,7 @@ export type PaymentStatus = "PENDING" | "SUCCESSFUL" | "FAILED" | "REFUNDED";
 export type PaymentRecord = {
   id: number;
   orderId: number;
-  customerId: number;
+  customerId: string;
   provider: PaymentProvider;
   method: PaymentMethod;
   reference: string;
@@ -31,7 +31,7 @@ export function getPaymentProviderConfig() {
 export function createPendingPayment(input: {
   orderId: number;
   orderNumber: string;
-  customerId: number;
+  customerId: string;
   amount: number;
   method: PaymentMethod;
 }): PaymentRecord {
