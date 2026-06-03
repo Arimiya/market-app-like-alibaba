@@ -32,6 +32,7 @@ import {
   simulateBackendPaymentVerification
 } from "./paymentProvider";
 import { supabase } from "./supabaseClient";
+import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 
 type Role = "ADMIN" | "VENDOR" | "CUSTOMER";
 
@@ -278,6 +279,17 @@ function mapProfileToUser(profile: ProfileRow, store?: StoreRow | null): AuthUse
   };
 }
 
+function mapAuthUserToCustomer(user: SupabaseAuthUser): AuthUser {
+  const metadataName = typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name.trim() : "";
+  const email = user.email ?? "";
+  return {
+    id: user.id,
+    name: metadataName || email.split("@")[0] || "MarketHub Customer",
+    email,
+    role: "CUSTOMER"
+  };
+}
+
 function mapVendorApplication(row: VendorApplicationRow): VendorApplication {
   return {
     id: row.id,
@@ -421,27 +433,7 @@ function App() {
         })),
     [products, users]
   );
-  const loadProfile = async (userId: string) => {
-    if (!supabase) return;
-    const client = supabase;
-    const { data: profile, error: profileError } = await client
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single<ProfileRow>();
-
-    if (profileError || !profile) {
-      setCurrentUser(null);
-      return;
-    }
-
-    const { data: store } = await client
-      .from("stores")
-      .select("*")
-      .eq("vendor_user_id", userId)
-      .maybeSingle<StoreRow>();
-
-    const mappedUser = mapProfileToUser(profile, store);
+  const rememberAuthenticatedUser = (mappedUser: AuthUser) => {
     setCurrentUser(mappedUser);
     setUsers((currentUsers) => {
       const existing = currentUsers.some((user) => user.id === mappedUser.id);
@@ -449,9 +441,35 @@ function App() {
         ? currentUsers.map((user) => (user.id === mappedUser.id ? mappedUser : user))
         : [...currentUsers, mappedUser];
     });
-    if (mappedUser.role === "ADMIN") {
-      setPage("admin");
+    setPage(mappedUser.role === "ADMIN" ? "admin" : "home");
+  };
+  const loadProfile = async (authUser: SupabaseAuthUser) => {
+    const fallbackUser = mapAuthUserToCustomer(authUser);
+    if (!supabase) {
+      rememberAuthenticatedUser(fallbackUser);
+      return fallbackUser;
     }
+    const client = supabase;
+    const { data: profile, error: profileError } = await client
+      .from("profiles")
+      .select("*")
+      .eq("id", authUser.id)
+      .single<ProfileRow>();
+
+    if (profileError || !profile) {
+      rememberAuthenticatedUser(fallbackUser);
+      return fallbackUser;
+    }
+
+    const { data: store } = await client
+      .from("stores")
+      .select("*")
+      .eq("vendor_user_id", authUser.id)
+      .maybeSingle<StoreRow>();
+
+    const mappedUser = mapProfileToUser(profile, store);
+    rememberAuthenticatedUser(mappedUser);
+    return mappedUser;
   };
   const loadVendorApplications = async (user: AuthUser | null) => {
     if (!user || !supabase) {
@@ -481,7 +499,7 @@ function App() {
       const { data } = await client.auth.getSession();
       if (!active) return;
       if (data.session?.user) {
-        await loadProfile(data.session.user.id);
+        await loadProfile(data.session.user);
       }
       setAuthLoading(false);
     };
@@ -489,7 +507,7 @@ function App() {
     initializeAuth();
     const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        void loadProfile(session.user.id);
+        void loadProfile(session.user);
       } else {
         setCurrentUser(null);
         setVendorApplications([]);
@@ -844,6 +862,7 @@ function App() {
           user={currentUser}
           setCurrentUser={setCurrentUser}
           setPage={setPage}
+          onAuthenticated={loadProfile}
           vendorApplications={vendorApplications}
           setVendorApplications={setVendorApplications}
         />
@@ -902,6 +921,7 @@ function App() {
             setUsers,
             currentUser,
             setCurrentUser,
+            onAuthenticated: loadProfile,
             vendorApplications,
             setVendorApplications,
             selectedProductId,
@@ -1002,6 +1022,7 @@ function renderPage({
   setUsers,
   currentUser,
   setCurrentUser,
+  onAuthenticated,
   vendorApplications,
   setVendorApplications,
   selectedProductId,
@@ -1037,6 +1058,7 @@ function renderPage({
   setUsers: React.Dispatch<React.SetStateAction<AuthUser[]>>;
   currentUser: AuthUser | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>;
+  onAuthenticated: (authUser: SupabaseAuthUser) => Promise<AuthUser>;
   vendorApplications: VendorApplication[];
   setVendorApplications: React.Dispatch<React.SetStateAction<VendorApplication[]>>;
   selectedProductId: number | null;
@@ -1128,7 +1150,7 @@ function renderPage({
     case "ai":
       return <RoleGuard user={currentUser} roles={["ADMIN"]} setPage={setPage}><AiPage /></RoleGuard>;
     case "profile":
-      return <ProfilePage setUsers={setUsers} user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} />;
+      return <ProfilePage setUsers={setUsers} user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} onAuthenticated={onAuthenticated} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} />;
     case "product":
       return <ProductDetailsPage product={products.find((product) => product.id === selectedProductId) ?? null} setPage={setPage} setSelectedProductId={setSelectedProductId} onAddToCart={addToCart} onMessageVendor={messageVendorFromProduct} />;
     case "order-confirmation":
@@ -3475,6 +3497,7 @@ function ProfilePage({
   user,
   setCurrentUser,
   setPage,
+  onAuthenticated,
   vendorApplications,
   setVendorApplications
 }: {
@@ -3482,6 +3505,7 @@ function ProfilePage({
   user: AuthUser | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>;
   setPage: (page: PageId) => void;
+  onAuthenticated: (authUser: SupabaseAuthUser) => Promise<AuthUser>;
   vendorApplications: VendorApplication[];
   setVendorApplications: React.Dispatch<React.SetStateAction<VendorApplication[]>>;
 }) {
@@ -3529,7 +3553,7 @@ function ProfilePage({
     const client = supabase;
 
     if (mode === "login") {
-      const { error } = await client.auth.signInWithPassword({
+      const { data, error } = await client.auth.signInWithPassword({
         email: form.email.trim().toLowerCase(),
         password: form.password
       });
@@ -3538,6 +3562,10 @@ function ProfilePage({
         setAuthError(error.message);
         setAuthWorking(false);
         return;
+      }
+
+      if (data.user) {
+        await onAuthenticated(data.user);
       }
 
       setAuthSuccess("Logged in securely.");
@@ -3573,6 +3601,10 @@ function ProfilePage({
         .from("profiles")
         .update({ phone: form.phone.trim() })
         .eq("id", data.session.user.id);
+    }
+
+    if (data.session?.user) {
+      await onAuthenticated(data.session.user);
     }
 
     setAuthSuccess(data.session ? "Customer account created securely." : "Customer account created. Check your email to confirm your account, then log in.");
