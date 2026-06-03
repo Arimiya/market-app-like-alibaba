@@ -31,7 +31,7 @@ import {
   PaymentRecord,
   simulateBackendPaymentVerification
 } from "./paymentProvider";
-import { supabase } from "./supabaseClient";
+import { isSupabaseConfigured, supabase } from "./supabaseClient";
 
 type Role = "ADMIN" | "VENDOR" | "CUSTOMER";
 
@@ -422,7 +422,9 @@ function App() {
     [products, users]
   );
   const loadProfile = async (userId: string) => {
-    const { data: profile, error: profileError } = await supabase
+    if (!supabase) return;
+    const client = supabase;
+    const { data: profile, error: profileError } = await client
       .from("profiles")
       .select("*")
       .eq("id", userId)
@@ -433,7 +435,7 @@ function App() {
       return;
     }
 
-    const { data: store } = await supabase
+    const { data: store } = await client
       .from("stores")
       .select("*")
       .eq("vendor_user_id", userId)
@@ -452,7 +454,7 @@ function App() {
     }
   };
   const loadVendorApplications = async (user: AuthUser | null) => {
-    if (!user) {
+    if (!user || !supabase) {
       setVendorApplications([]);
       return;
     }
@@ -469,9 +471,14 @@ function App() {
     }
   };
   useEffect(() => {
+    if (!supabase) {
+      setAuthLoading(false);
+      return;
+    }
+    const client = supabase;
     let active = true;
     const initializeAuth = async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data } = await client.auth.getSession();
       if (!active) return;
       if (data.session?.user) {
         await loadProfile(data.session.user.id);
@@ -480,7 +487,7 @@ function App() {
     };
 
     initializeAuth();
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         void loadProfile(session.user.id);
       } else {
@@ -809,7 +816,9 @@ function App() {
   };
   const unreadMessageCount = getUnreadMessageCount(currentUser, conversations);
   const logout = async () => {
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
     setCurrentUser(null);
     setCartItems([]);
     setPage("home");
@@ -3512,9 +3521,15 @@ function ProfilePage({
     setAuthError("");
     setAuthSuccess("");
     setAuthWorking(true);
+    if (!supabase) {
+      setAuthError("Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy.");
+      setAuthWorking(false);
+      return;
+    }
+    const client = supabase;
 
     if (mode === "login") {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error } = await client.auth.signInWithPassword({
         email: form.email.trim().toLowerCase(),
         password: form.password
       });
@@ -3537,7 +3552,7 @@ function ProfilePage({
       return;
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await client.auth.signUp({
       email: form.email.trim().toLowerCase(),
       password: form.password,
       options: {
@@ -3554,7 +3569,7 @@ function ProfilePage({
     }
 
     if (data.session?.user && form.phone.trim()) {
-      await supabase
+      await client
         .from("profiles")
         .update({ phone: form.phone.trim() })
         .eq("id", data.session.user.id);
@@ -3570,6 +3585,12 @@ function ProfilePage({
     setAuthError("");
     setAuthSuccess("");
     setAuthWorking(true);
+    if (!supabase) {
+      setAuthError("Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy.");
+      setAuthWorking(false);
+      return;
+    }
+    const client = supabase;
 
     if (!form.name.trim()) {
       setAuthError("Name is required.");
@@ -3585,7 +3606,7 @@ function ProfilePage({
 
     const nextEmail = form.email.trim().toLowerCase();
     if (nextEmail !== user.email) {
-      const { error: emailError } = await supabase.auth.updateUser({ email: nextEmail });
+      const { error: emailError } = await client.auth.updateUser({ email: nextEmail });
       if (emailError) {
         setAuthError(emailError.message);
         setAuthWorking(false);
@@ -3593,7 +3614,7 @@ function ProfilePage({
       }
     }
 
-    const { error } = await supabase
+    const { error } = await client
       .from("profiles")
       .update({
         full_name: form.name.trim(),
@@ -3646,6 +3667,11 @@ function ProfilePage({
 
   const submitVendorApplication = async (event: FormEvent) => {
     event.preventDefault();
+    if (!supabase) {
+      setVendorMessage({ error: "Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy.", success: "" });
+      return;
+    }
+    const client = supabase;
     if (!user || user.role !== "CUSTOMER") {
       setVendorMessage({ error: "Only registered customers can apply to become vendors.", success: "" });
       return;
@@ -3666,7 +3692,7 @@ function ProfilePage({
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("vendor_applications")
       .insert({
         user_id: user.id,
@@ -3759,6 +3785,12 @@ function ProfilePage({
             <button className={mode === "signup" ? "active" : ""} type="button" onClick={() => setMode("signup")}>Sign up</button>
             <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Log in</button>
           </div>
+          {!isSupabaseConfigured ? (
+            <FormMessage
+              error="Supabase is not configured for this deployment. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy."
+              success=""
+            />
+          ) : null}
           {mode === "signup" ? (
             <>
               <input value={form.name} onChange={(event) => updateField("name", event.target.value)} placeholder="Full name" />
