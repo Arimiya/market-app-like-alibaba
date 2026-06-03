@@ -31,7 +31,7 @@ import {
   PaymentRecord,
   simulateBackendPaymentVerification
 } from "./paymentProvider";
-import { isSupabaseConfigured, supabase } from "./supabaseClient";
+import { supabase } from "./supabaseClient";
 
 type Role = "ADMIN" | "VENDOR" | "CUSTOMER";
 
@@ -3522,7 +3522,7 @@ function ProfilePage({
     setAuthSuccess("");
     setAuthWorking(true);
     if (!supabase) {
-      setAuthError("Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy.");
+      setAuthError("Account service is temporarily unavailable. Please try again later.");
       setAuthWorking(false);
       return;
     }
@@ -3586,7 +3586,7 @@ function ProfilePage({
     setAuthSuccess("");
     setAuthWorking(true);
     if (!supabase) {
-      setAuthError("Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy.");
+      setAuthError("Account service is temporarily unavailable. Please try again later.");
       setAuthWorking(false);
       return;
     }
@@ -3668,7 +3668,7 @@ function ProfilePage({
   const submitVendorApplication = async (event: FormEvent) => {
     event.preventDefault();
     if (!supabase) {
-      setVendorMessage({ error: "Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy.", success: "" });
+      setVendorMessage({ error: "Vendor applications are temporarily unavailable. Please try again later.", success: "" });
       return;
     }
     const client = supabase;
@@ -3785,12 +3785,6 @@ function ProfilePage({
             <button className={mode === "signup" ? "active" : ""} type="button" onClick={() => setMode("signup")}>Sign up</button>
             <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Log in</button>
           </div>
-          {!isSupabaseConfigured ? (
-            <FormMessage
-              error="Supabase is not configured for this deployment. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy."
-              success=""
-            />
-          ) : null}
           {mode === "signup" ? (
             <>
               <input value={form.name} onChange={(event) => updateField("name", event.target.value)} placeholder="Full name" />
