@@ -27,11 +27,10 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   createPendingPayment,
-  getPaymentProviderConfig,
   PaymentRecord,
   simulateBackendPaymentVerification
 } from "./paymentProvider";
-import { supabase } from "./supabaseClient";
+import { supabase, supabaseConfigurationMessage } from "./supabaseClient";
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 
 type Role = "ADMIN" | "VENDOR" | "CUSTOMER";
@@ -364,7 +363,7 @@ const navSections = [
   }
 ] as const;
 
-const publicPages: PageId[] = ["profile"];
+const publicPages: PageId[] = ["home", "categories", "stores", "deals", "product", "profile"];
 
 const rolePages: Record<Role, PageId[]> = {
   CUSTOMER: ["home", "categories", "stores", "deals", "track", "cart", "checkout", "wishlist", "messages", "notifications", "profile", "product", "order-confirmation", "payment-success", "payment-failure"],
@@ -395,6 +394,7 @@ function App() {
   const [confirmedOrderId, setConfirmedOrderId] = useState<number | null>(null);
   const [filters, setFilters] = useState({ category: "All", maxPrice: "" });
   const [authLoading, setAuthLoading] = useState(true);
+  const [authPrompt, setAuthPrompt] = useState("");
   const customerProducts = useMemo(
     () => products.filter((product) => product.status === "Published" && product.stock > 0),
     [products]
@@ -434,6 +434,7 @@ function App() {
     [products, users]
   );
   const rememberAuthenticatedUser = (mappedUser: AuthUser) => {
+    setAuthPrompt("");
     setCurrentUser(mappedUser);
     setUsers((currentUsers) => {
       const existing = currentUsers.some((user) => user.id === mappedUser.id);
@@ -530,7 +531,20 @@ function App() {
     }))
     .filter((section) => section.items.length > 0);
   const changePage = (nextPage: PageId) => {
-    setPage(canAccessPage(nextPage, currentUser) ? nextPage : "profile");
+    if (canAccessPage(nextPage, currentUser)) {
+      setPage(nextPage);
+      return;
+    }
+    if (!currentUser) {
+      setAuthPrompt("Please log in or create an account to continue.");
+      setPage("profile");
+      return;
+    }
+    setPage("profile");
+  };
+  const requestAuthentication = () => {
+    setAuthPrompt("Please log in or create an account to continue.");
+    setPage("profile");
   };
   const openProduct = (productId: number) => {
     setSelectedProductId(productId);
@@ -538,7 +552,7 @@ function App() {
   };
   const addToCart = (productId: number, quantity = 1) => {
     if (!currentUser || currentUser.role !== "CUSTOMER") {
-      setPage("profile");
+      requestAuthentication();
       return "Please log in as a customer before adding products to cart.";
     }
 
@@ -771,7 +785,7 @@ function App() {
   };
   const messageVendorFromProduct = (productId: number, body: string) => {
     if (!currentUser || currentUser.role !== "CUSTOMER") {
-      changePage("profile");
+      requestAuthentication();
       return "Please sign up or log in as a customer before messaging a vendor.";
     }
     const product = products.find((item) => item.id === productId);
@@ -842,34 +856,6 @@ function App() {
     setPage("home");
   };
 
-  if (authLoading) {
-    return (
-      <main className="auth-gate-shell">
-        <section className="empty-state">
-          <ShieldCheck size={42} />
-          <h3>Loading secure session</h3>
-          <p>Checking your MarketHub account before opening the marketplace.</p>
-        </section>
-      </main>
-    );
-  }
-
-  if (!currentUser) {
-    return (
-      <main className="auth-gate-shell">
-        <ProfilePage
-          setUsers={setUsers}
-          user={currentUser}
-          setCurrentUser={setCurrentUser}
-          setPage={setPage}
-          onAuthenticated={loadProfile}
-          vendorApplications={vendorApplications}
-          setVendorApplications={setVendorApplications}
-        />
-      </main>
-    );
-  }
-
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -904,11 +890,12 @@ function App() {
           <Sparkles size={20} />
           <strong>Grow more with MarketHub</strong>
           <span>Vendor tools, mobile money, analytics, and regional commerce.</span>
+          {!currentUser ? <button onClick={requestAuthentication}>Become a Vendor</button> : null}
         </div>
       </aside>
 
       <main className="main-area">
-        <TopBar query={query} setQuery={setQuery} setPage={changePage} user={currentUser} onLogout={logout} cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)} unreadMessageCount={unreadMessageCount} />
+        <TopBar query={query} setQuery={setQuery} setPage={changePage} user={currentUser} onLogout={logout} cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)} unreadMessageCount={unreadMessageCount} authLoading={authLoading} />
         <div className="content">
           {renderPage({
             page,
@@ -922,6 +909,8 @@ function App() {
             currentUser,
             setCurrentUser,
             onAuthenticated: loadProfile,
+            authPrompt,
+            setAuthPrompt,
             vendorApplications,
             setVendorApplications,
             selectedProductId,
@@ -960,7 +949,8 @@ function TopBar({
   user,
   onLogout,
   cartCount,
-  unreadMessageCount
+  unreadMessageCount,
+  authLoading
 }: {
   query: string;
   setQuery: (query: string) => void;
@@ -969,6 +959,7 @@ function TopBar({
   onLogout: () => void;
   cartCount: number;
   unreadMessageCount: number;
+  authLoading: boolean;
 }) {
   return (
     <header className="topbar">
@@ -985,27 +976,34 @@ function TopBar({
         />
       </label>
       <div className="top-actions">
-        <button title="Wishlist" onClick={() => setPage("wishlist")}>
-          <Heart size={18} />
-        </button>
-        <button title="Cart" onClick={() => setPage("cart")}>
-          <ShoppingCart size={18} />
-          {cartCount > 0 ? <span className="cart-badge">{cartCount}</span> : null}
-        </button>
         {user ? (
-          <button title="Messages" onClick={() => setPage(user.role === "VENDOR" ? "vendor" : "messages")}>
-            <MessageSquare size={18} />
-            {unreadMessageCount > 0 ? <span className="cart-badge">{unreadMessageCount}</span> : null}
-          </button>
+          <>
+            <button title="Wishlist" onClick={() => setPage("wishlist")}>
+              <Heart size={18} />
+            </button>
+            <button title="Cart" onClick={() => setPage("cart")}>
+              <ShoppingCart size={18} />
+              {cartCount > 0 ? <span className="cart-badge">{cartCount}</span> : null}
+            </button>
+            <button title="Messages" onClick={() => setPage(user.role === "VENDOR" ? "vendor" : "messages")}>
+              <MessageSquare size={18} />
+              {unreadMessageCount > 0 ? <span className="cart-badge">{unreadMessageCount}</span> : null}
+            </button>
+            <button title="Notifications" onClick={() => setPage("notifications")}>
+              <Bell size={18} />
+            </button>
+          </>
         ) : null}
-        <button title="Notifications" onClick={() => setPage("notifications")}>
-          <Bell size={18} />
-        </button>
         {user ? (
           <button title="Log out" onClick={onLogout}>
             <LogOut size={18} />
           </button>
-        ) : null}
+        ) : (
+          <>
+            <button className="auth-action-button" disabled={authLoading} onClick={() => setPage("profile")}>Log In</button>
+            <button className="auth-action-button primary" disabled={authLoading} onClick={() => setPage("profile")}>Create Account</button>
+          </>
+        )}
       </div>
     </header>
   );
@@ -1023,6 +1021,8 @@ function renderPage({
   currentUser,
   setCurrentUser,
   onAuthenticated,
+  authPrompt,
+  setAuthPrompt,
   vendorApplications,
   setVendorApplications,
   selectedProductId,
@@ -1059,6 +1059,8 @@ function renderPage({
   currentUser: AuthUser | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>;
   onAuthenticated: (authUser: SupabaseAuthUser) => Promise<AuthUser>;
+  authPrompt: string;
+  setAuthPrompt: React.Dispatch<React.SetStateAction<string>>;
   vendorApplications: VendorApplication[];
   setVendorApplications: React.Dispatch<React.SetStateAction<VendorApplication[]>>;
   selectedProductId: number | null;
@@ -1100,13 +1102,13 @@ function renderPage({
 
   switch (page) {
     case "home":
-      return <HomePage setPage={setPage} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
+      return <HomePage setPage={setPage} onBecomeVendor={() => { setAuthPrompt("Please log in or create an account to continue."); setPage("profile"); }} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
     case "categories":
       return <CategoriesPage setPage={setPage} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
     case "stores":
       return <StoresPage stores={stores} />;
     case "deals":
-      return <DealsPage products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
+      return <DealsPage setPage={setPage} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
     case "track":
       return <TrackOrderPage orders={orders} currentUser={currentUser} />;
     case "cart":
@@ -1150,7 +1152,7 @@ function renderPage({
     case "ai":
       return <RoleGuard user={currentUser} roles={["ADMIN"]} setPage={setPage}><AiPage /></RoleGuard>;
     case "profile":
-      return <ProfilePage setUsers={setUsers} user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} onAuthenticated={onAuthenticated} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} />;
+      return <ProfilePage setUsers={setUsers} user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} onAuthenticated={onAuthenticated} authPrompt={authPrompt} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} />;
     case "product":
       return <ProductDetailsPage product={products.find((product) => product.id === selectedProductId) ?? null} setPage={setPage} setSelectedProductId={setSelectedProductId} onAddToCart={addToCart} onMessageVendor={messageVendorFromProduct} />;
     case "order-confirmation":
@@ -1185,6 +1187,7 @@ function PageIntro({
 
 function HomePage({
   setPage,
+  onBecomeVendor,
   products,
   filters,
   setFilters,
@@ -1192,6 +1195,7 @@ function HomePage({
   onAddToCart
 }: {
   setPage: (page: PageId) => void;
+  onBecomeVendor: () => void;
   products: Product[];
   filters: { category: string; maxPrice: string };
   setFilters: React.Dispatch<React.SetStateAction<{ category: string; maxPrice: string }>>;
@@ -1225,24 +1229,24 @@ function HomePage({
           )}
         </div>
       </section>
-      {!hasProducts ? <MarketplaceLaunchMessage setPage={setPage} /> : null}
+      {!hasProducts ? <MarketplaceLaunchMessage setPage={setPage} onBecomeVendor={onBecomeVendor} /> : null}
       <SectionHeader title="Featured Categories" action="View all" onClick={() => setPage("categories")} />
       <CategoryStrip setPage={setPage} />
       <SectionHeader title="Trending Products" />
       <ProductFilters filters={filters} setFilters={setFilters} />
-      <ProductGrid products={trendingProducts} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} emptyTitle="No trending products yet" emptyCopy="Vendor uploads will appear here once the marketplace opens." />
+      <ProductGrid products={trendingProducts} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="No trending products yet" emptyCopy="Vendor uploads will appear here once the marketplace opens." />
       <SectionHeader title="New Arrivals" />
-      <ProductGrid products={newArrivals} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} emptyTitle="No new arrivals yet" emptyCopy="Fresh vendor products will appear here." />
+      <ProductGrid products={newArrivals} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="No new arrivals yet" emptyCopy="Fresh vendor products will appear here." />
       <SectionHeader title="Featured Vendors" action="Stores" onClick={() => setPage("stores")} />
       <FeaturedVendorStrip />
       <SectionHeader title="Deals" action="View deals" onClick={() => setPage("deals")} />
-      <ProductGrid products={dealProducts} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} emptyTitle="No deals yet" emptyCopy="Discounted products will appear after vendors publish offers." />
+      <ProductGrid products={dealProducts} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="No deals yet" emptyCopy="Discounted products will appear after vendors publish offers." />
       <TrustSection />
     </>
   );
 }
 
-function MarketplaceLaunchMessage({ setPage }: { setPage: (page: PageId) => void }) {
+function MarketplaceLaunchMessage({ setPage, onBecomeVendor }: { setPage: (page: PageId) => void; onBecomeVendor: () => void }) {
   return (
     <section className="launch-panel">
       <div>
@@ -1251,7 +1255,7 @@ function MarketplaceLaunchMessage({ setPage }: { setPage: (page: PageId) => void
         <p>MarketHub is ready for vendors to set up stores and start publishing products.</p>
       </div>
       <div>
-        <button onClick={() => setPage("profile")}>Become a Vendor</button>
+        <button onClick={onBecomeVendor}>Become a Vendor</button>
         <button className="ghost-button" onClick={() => setPage("categories")}>Explore Categories</button>
       </div>
     </section>
@@ -1261,7 +1265,7 @@ function MarketplaceLaunchMessage({ setPage }: { setPage: (page: PageId) => void
 function FeaturedVendorStrip() {
   return (
     <section className="vendor-strip">
-      {["Verified sellers", "Mobile money ready", "Local delivery", "Secure marketplace"].map((item) => (
+      {["Verified sellers", "Mobile money planned", "Local delivery", "Secure marketplace"].map((item) => (
         <article key={item}>
           <Store size={20} />
           <strong>{item}</strong>
@@ -1276,7 +1280,7 @@ function TrustSection() {
   return (
     <section className="trust-grid">
       {[
-        ["Secure payments", CreditCard],
+        ["Online payments coming soon", CreditCard],
         ["Verified vendors", ShieldCheck],
         ["Order tracking", Truck],
         ["Customer support", MessageSquare]
@@ -1346,12 +1350,14 @@ function ProductGrid({
   products,
   onOpenProduct,
   onAddToCart,
+  onWishlist,
   emptyTitle = "No products uploaded yet",
   emptyCopy = "Vendor uploads will appear here."
 }: {
   products: Product[];
   onOpenProduct: (productId: number) => void;
   onAddToCart: (productId: number, quantity?: number) => string;
+  onWishlist?: () => void;
   emptyTitle?: string;
   emptyCopy?: string;
 }) {
@@ -1374,7 +1380,7 @@ function ProductGrid({
         {products.map((product) => (
           <article className="product-card" key={product.id}>
             <span className="badge">{product.badge}</span>
-            <button className="heart-btn" title="Save product">
+            <button className="heart-btn" title="Save product" onClick={onWishlist}>
               <Heart size={17} />
             </button>
             <button className="product-image-button" onClick={() => onOpenProduct(product.id)}>
@@ -1537,7 +1543,7 @@ function CategoriesPage({
       </section>
       <SectionHeader title="Filtered Products" action="Back home" onClick={() => setPage("home")} />
       <ProductFilters filters={filters} setFilters={setFilters} />
-      <ProductGrid products={products} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} />
+      <ProductGrid products={products} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} />
     </>
   );
 }
@@ -1580,12 +1586,14 @@ function StoresPage({ stores }: { stores: StoreItem[] }) {
 }
 
 function DealsPage({
+  setPage,
   products,
   filters,
   setFilters,
   onOpenProduct,
   onAddToCart
 }: {
+  setPage: (page: PageId) => void;
   products: Product[];
   filters: { category: string; maxPrice: string };
   setFilters: React.Dispatch<React.SetStateAction<{ category: string; maxPrice: string }>>;
@@ -1605,7 +1613,7 @@ function DealsPage({
         ))}
       </div>
       <ProductFilters filters={filters} setFilters={setFilters} />
-      <ProductGrid products={products.filter((product) => product.discountPrice)} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} />
+      <ProductGrid products={products.filter((product) => product.discountPrice)} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} />
     </>
   );
 }
@@ -1812,7 +1820,6 @@ function CheckoutPage({
   const cartDetails = getCartDetails(cartItems, products);
   const groupedItems = groupCartByVendor(cartDetails.items);
   const fees = calculateCheckoutFees(cartDetails.subtotal, groupedItems.length, delivery.deliveryMethod);
-  const providerConfig = getPaymentProviderConfig();
   const updateDelivery = (field: keyof typeof delivery, value: string) => {
     setDelivery((current) => ({ ...current, [field]: value }));
     setMessage({ error: "", success: "" });
@@ -1838,8 +1845,8 @@ function CheckoutPage({
     setMessage({
       error: "",
       success: outcome === "success"
-        ? "Payment initialized. Redirecting to secure checkout..."
-        : "Payment initialized. Redirecting to failure simulation..."
+        ? "Test order created. Opening the successful payment-flow test..."
+        : "Test order created. Opening the failed payment-flow test..."
     });
     setIsPlacingOrder(false);
     setPage(outcome === "success" ? "payment-success" : "payment-failure");
@@ -1852,12 +1859,16 @@ function CheckoutPage({
   return (
     <>
       <PageIntro
-        kicker="Payment"
-        title="Checkout"
-        copy="Complete delivery details, select payment, confirm totals, and place orders across one or more vendors."
+        kicker="Demo Mode"
+        title="Checkout Testing"
+        copy="Online payment is not active yet. This checkout flow is currently for testing only."
       />
       <section className="split-layout checkout-layout">
         <form className="form-panel" onSubmit={placeOrder}>
+          <div className="demo-notice">
+            <strong>Demo mode</strong>
+            <span>Online payment is not active yet. No real payment will be processed.</span>
+          </div>
           <h3>Delivery Information</h3>
           <input value={delivery.name} onChange={(event) => updateDelivery("name", event.target.value)} placeholder="Full name" />
           <input value={delivery.phone} onChange={(event) => updateDelivery("phone", event.target.value)} placeholder="Phone number" />
@@ -1880,13 +1891,11 @@ function CheckoutPage({
             <option value="Wallet balance">Wallet balance</option>
           </select>
           <FormMessage error={message.error} success={message.success} />
-          <button disabled={isPlacingOrder || cartDetails.items.length === 0}>{isPlacingOrder ? "Creating order..." : "Confirm Order"}</button>
+          <button disabled={isPlacingOrder || cartDetails.items.length === 0}>{isPlacingOrder ? "Creating test order..." : "Test Successful Payment Flow"}</button>
         </form>
         <aside className="summary-panel">
           <h3>Checkout Summary</h3>
-          <p className="payment-provider-note">
-            Secure checkout via {providerConfig.provider}. Card and mobile money details are entered with the payment provider.
-          </p>
+          <p className="payment-provider-note">Testing only. Payment details are not collected or sent to a payment provider.</p>
           {groupedItems.length === 0 ? (
             <EmptyState icon={<ShoppingCart size={38} />} title="No items to checkout" copy="Add products to cart before checkout." />
           ) : null}
@@ -1903,7 +1912,7 @@ function CheckoutPage({
           <SummaryLine label="Platform service fee" value={currency.format(fees.serviceFee)} />
           <SummaryLine label="Total due" value={currency.format(fees.total)} strong />
           <button className="ghost-button" type="button" onClick={() => startCheckout("failed")} disabled={isPlacingOrder || cartDetails.items.length === 0}>
-            Simulate Failed Payment
+            Test Failed Payment Flow
           </button>
         </aside>
       </section>
@@ -1966,11 +1975,11 @@ function PaymentResultPage({
 
   return (
     <>
-      <PageIntro kicker="Payment" title={outcome === "success" ? "Secure Payment Verification" : "Payment Failed"} copy="" />
+      <PageIntro kicker="Demo Mode" title={outcome === "success" ? "Successful Payment Flow Test" : "Failed Payment Flow Test"} copy="" />
       <section className="confirmation-panel">
         {outcome === "success" ? <CheckCircle2 size={46} /> : <CreditCard size={46} />}
-        <h3>{outcome === "success" ? "Verify payment success" : "Payment could not be completed"}</h3>
-        <p>MarketHub verifies payment on the backend before marking an order as paid.</p>
+        <h3>{outcome === "success" ? "Complete successful-flow test" : "Complete failed-flow test"}</h3>
+        <p>Online payment is not active yet. This screen changes temporary frontend test data only.</p>
         {payment ? (
           <div className="confirmation-grid">
             <SummaryLine label="Reference" value={payment.reference} />
@@ -1981,7 +1990,7 @@ function PaymentResultPage({
         ) : null}
         <FormMessage error={message.error} success={message.success} />
         <button onClick={verifyPayment} disabled={isVerifying || !payment}>
-          {isVerifying ? "Verifying..." : outcome === "success" ? "Verify Successful Payment" : "Record Failed Payment"}
+          {isVerifying ? "Running test..." : outcome === "success" ? "Complete Successful Payment Test" : "Complete Failed Payment Test"}
         </button>
         <button className="ghost-button" onClick={() => setPage("checkout")}>Back to Checkout</button>
       </section>
@@ -3337,13 +3346,13 @@ function PaymentsPage({
     return (
       <>
         <PageIntro
-          kicker="Finance"
+          kicker="Demo Data"
           title="Payments and Payouts"
-          copy="Admins review payout requests, monitor payment statuses, and reconcile marketplace finance records."
+          copy="Payment, commission, and payout records on this page are temporary frontend test data. No real finance operations are active."
         />
         <section className="stat-grid">
-          <Metric label="Payment records" value={String(payments.length)} delta="Provider references" />
-          <Metric label="Successful payments" value={String(payments.filter((payment) => payment.status === "SUCCESSFUL").length)} delta="Verified only" />
+          <Metric label="Test payment records" value={String(payments.length)} delta="Temporary session data" />
+          <Metric label="Successful flow tests" value={String(payments.filter((payment) => payment.status === "SUCCESSFUL").length)} delta="Not real payments" />
           <Metric label="Pending payouts" value={String(payoutRequests.filter((request) => request.status === "PENDING").length)} delta="Needs review" />
           <Metric label="Platform commission" value={`${Math.round(PLATFORM_COMMISSION_RATE * 100)}%`} delta="Per completed sale" />
         </section>
@@ -3388,9 +3397,9 @@ function PaymentsPage({
   return (
     <>
       <PageIntro
-        kicker="Finance"
+        kicker="Demo Data"
         title="Earnings and Payouts"
-        copy="Track completed sales, platform commission, available earnings, and payout requests for your vendor store."
+        copy="Earnings, commissions, and payout requests are temporary test data. Real vendor payouts are not active yet."
       />
       <section className="stat-grid">
         <Metric label="Gross completed sales" value={currency.format(finance.grossCompletedSales)} delta="Delivered paid order lines" />
@@ -3401,6 +3410,10 @@ function PaymentsPage({
       <section className="split-layout">
         <form className="form-panel" onSubmit={submitPayout}>
           <h3>Request Payout</h3>
+          <div className="demo-notice">
+            <strong>Coming soon</strong>
+            <span>Real payout requests are not active yet.</span>
+          </div>
           <input
             value={form.amount}
             onChange={(event) => {
@@ -3431,7 +3444,7 @@ function PaymentsPage({
             placeholder="Mobile money number or bank account"
           />
           <FormMessage error={message.error} success={message.success} />
-          <button disabled={finance.availableEarnings <= 0}>Submit Payout Request</button>
+          <button disabled>Real Payouts Coming Soon</button>
         </form>
         <aside className="summary-panel">
           <h3>Earnings Breakdown</h3>
@@ -3498,6 +3511,7 @@ function ProfilePage({
   setCurrentUser,
   setPage,
   onAuthenticated,
+  authPrompt,
   vendorApplications,
   setVendorApplications
 }: {
@@ -3506,6 +3520,7 @@ function ProfilePage({
   setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>;
   setPage: (page: PageId) => void;
   onAuthenticated: (authUser: SupabaseAuthUser) => Promise<AuthUser>;
+  authPrompt: string;
   vendorApplications: VendorApplication[];
   setVendorApplications: React.Dispatch<React.SetStateAction<VendorApplication[]>>;
 }) {
@@ -3546,7 +3561,7 @@ function ProfilePage({
     setAuthSuccess("");
     setAuthWorking(true);
     if (!supabase) {
-      setAuthError("Account service is temporarily unavailable. Please try again later.");
+      setAuthError(supabaseConfigurationMessage);
       setAuthWorking(false);
       return;
     }
@@ -3618,7 +3633,7 @@ function ProfilePage({
     setAuthSuccess("");
     setAuthWorking(true);
     if (!supabase) {
-      setAuthError("Account service is temporarily unavailable. Please try again later.");
+      setAuthError(supabaseConfigurationMessage);
       setAuthWorking(false);
       return;
     }
@@ -3700,7 +3715,7 @@ function ProfilePage({
   const submitVendorApplication = async (event: FormEvent) => {
     event.preventDefault();
     if (!supabase) {
-      setVendorMessage({ error: "Vendor applications are temporarily unavailable. Please try again later.", success: "" });
+      setVendorMessage({ error: supabaseConfigurationMessage, success: "" });
       return;
     }
     const client = supabase;
@@ -3817,6 +3832,7 @@ function ProfilePage({
             <button className={mode === "signup" ? "active" : ""} type="button" onClick={() => setMode("signup")}>Sign up</button>
             <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Log in</button>
           </div>
+          <FormMessage error={authPrompt || (!supabase ? supabaseConfigurationMessage : "")} success="" />
           {mode === "signup" ? (
             <>
               <input value={form.name} onChange={(event) => updateField("name", event.target.value)} placeholder="Full name" />
