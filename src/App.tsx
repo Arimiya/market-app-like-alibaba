@@ -1,19 +1,29 @@
 import {
   Bell,
+  BadgeCheck,
   Boxes,
+  Building2,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
   CreditCard,
+  Eye,
+  EyeOff,
   Heart,
+  Headphones,
   Home,
   LayoutDashboard,
   LineChart,
   LogOut,
+  MapPin,
+  Menu,
   MessageSquare,
   Package,
+  PackageCheck,
   Percent,
+  RotateCcw,
   Search,
+  Send,
   ShieldCheck,
   ShoppingCart,
   Sparkles,
@@ -22,6 +32,7 @@ import {
   Truck,
   User,
   Wallet,
+  X,
   Zap
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -32,6 +43,27 @@ import {
 } from "./paymentProvider";
 import { supabase, supabaseConfigurationMessage } from "./supabaseClient";
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
+import {
+  CatalogMedia,
+  CatalogProduct,
+  AccountDeletionRequestRecord,
+  createAccountDeletionRequest,
+  createProductReport,
+  createSellerReport,
+  deleteSellerProduct,
+  loadAccountDeletionRequests,
+  loadPublishedProducts,
+  loadProductReports,
+  loadSellerReports,
+  loadSellerProducts,
+  saveSellerProduct,
+  SellerReportRecord,
+  setAdminProductStatus,
+  setSellerProductStatus,
+  updateProductReportStatus,
+  updateSellerReportStatus,
+  uploadSellerApplicationAssets
+} from "./marketplaceData";
 
 type Role = "ADMIN" | "VENDOR" | "CUSTOMER";
 
@@ -64,12 +96,18 @@ type VendorApplication = {
   logoName: string;
   logoPreview: string;
   verificationDocumentName: string;
+  logoPath?: string;
+  verificationDocumentPath?: string;
   submittedAt: string;
 };
 
 type PageId =
   | "home"
   | "categories"
+  | "retail"
+  | "wholesale"
+  | "buyer-protection"
+  | "rfq"
   | "stores"
   | "deals"
   | "track"
@@ -86,16 +124,32 @@ type PageId =
   | "notifications"
   | "analytics"
   | "ai"
+  | "account"
   | "profile"
+  | "login"
+  | "signup"
+  | "verify-email"
+  | "forgot-password"
+  | "reset-password"
+  | "terms"
+  | "privacy"
+  | "delete-account"
+  | "prohibited-items"
+  | "seller-policy"
+  | "about"
+  | "help"
+  | "contact"
   | "product"
   | "order-confirmation"
   | "payment-success"
   | "payment-failure";
 
-type ProductStatus = "Draft" | "Published" | "Out of Stock" | "Suspended";
+type ProductStatus = "Draft" | "Published" | "Out of Stock" | "Suspended" | "Removed";
 
 type Product = {
   id: number;
+  databaseId?: string;
+  sellerUserId?: string;
   name: string;
   description: string;
   category: string;
@@ -109,6 +163,10 @@ type Product = {
   sku: string;
   condition: "New" | "Used";
   images: string[];
+  videoUrl?: string;
+  media: CatalogMedia[];
+  wholesalePrice?: number;
+  minimumOrderQuantity?: number;
   deliveryOptions: string[];
   status: ProductStatus;
   badge: string;
@@ -129,6 +187,8 @@ type ProductDraft = {
   deliveryOptions: string[];
   status: ProductStatus;
   images: string[];
+  wholesalePrice: string;
+  minimumOrderQuantity: string;
 };
 
 type CartItem = {
@@ -209,6 +269,7 @@ type StoreItem = {
   rating: number;
   location: string;
   logo: string;
+  vendorUserId?: string;
   logoUrl?: string;
   bannerUrl?: string;
   description?: string;
@@ -219,6 +280,7 @@ type ProfileRow = {
   full_name: string;
   email: string;
   phone: string | null;
+  address: string | null;
   role: Role;
   status: "ACTIVE" | "SUSPENDED";
   created_at: string;
@@ -246,7 +308,44 @@ type VendorApplicationRow = {
   address: string;
   description: string;
   category: string;
+  logo_path: string | null;
+  verification_document_path: string | null;
   created_at: string;
+};
+
+type PlatformSettingRow = {
+  id: string;
+  commission_rate: number;
+  currency: string;
+  payments_enabled: boolean;
+  payment_mode: "TEST" | "LIVE";
+  updated_by: string | null;
+  updated_at: string;
+};
+
+type SettlementAccountRow = {
+  id: string;
+  account_holder_name: string;
+  bank_name: string;
+  bank_code: string;
+  account_number_masked: string;
+  provider_recipient_code: string | null;
+  provider_subaccount_code: string | null;
+  currency: string;
+  verification_status: "UNVERIFIED" | "VERIFIED" | "FAILED";
+  is_active: boolean;
+  updated_at: string;
+};
+
+type ProductReport = {
+  id: string;
+  productId: string;
+  reporterUserId?: string;
+  sellerUserId: string;
+  reason: string;
+  description: string;
+  status: "PENDING" | "REVIEWED" | "ACTION_TAKEN" | "DISMISSED";
+  createdAt: string;
 };
 
 const currency = new Intl.NumberFormat("en-GH", {
@@ -259,9 +358,42 @@ const PLATFORM_SERVICE_FEE_ENABLED = true;
 const STANDARD_DELIVERY_FEE_PER_VENDOR = 25;
 const EXPRESS_DELIVERY_FEE_PER_VENDOR = 45;
 const PICKUP_DELIVERY_FEE_PER_VENDOR = 10;
-const PLATFORM_COMMISSION_RATE = 0.1;
+const PLATFORM_COMMISSION_RATE = 0.03;
 
 const initialProducts: Product[] = [];
+
+function catalogId(databaseId: string) {
+  return databaseId.split("").reduce((value, character) => ((value * 31 + character.charCodeAt(0)) >>> 0), 7);
+}
+
+function mapCatalogProduct(product: CatalogProduct): Product {
+  return {
+    id: catalogId(product.databaseId),
+    databaseId: product.databaseId,
+    sellerUserId: product.sellerUserId,
+    name: product.name,
+    description: product.description,
+    category: product.category,
+    subcategory: product.subcategory,
+    brand: product.brand,
+    vendor: product.vendor,
+    price: product.retailPrice,
+    discountPrice: product.discountPrice,
+    wholesalePrice: product.wholesalePrice,
+    minimumOrderQuantity: product.minimumOrderQuantity,
+    rating: 0,
+    stock: product.quantity,
+    sku: product.sku,
+    condition: product.condition,
+    images: product.images,
+    videoUrl: product.videoUrl,
+    media: product.media,
+    deliveryOptions: product.deliveryOptions,
+    status: product.status,
+    badge: product.wholesalePrice ? "Wholesale available" : product.status === "Published" ? "Live" : product.status,
+    image: product.images[0] ?? ""
+  };
+}
 
 function mapProfileToUser(profile: ProfileRow, store?: StoreRow | null): AuthUser {
   return {
@@ -270,6 +402,7 @@ function mapProfileToUser(profile: ProfileRow, store?: StoreRow | null): AuthUse
     email: profile.email,
     role: profile.role,
     phone: profile.phone ?? "",
+    address: profile.address ?? "",
     storeName: store?.name,
     storeDescription: store?.description,
     storeLogoUrl: store?.logo_url ?? undefined,
@@ -290,6 +423,9 @@ function mapAuthUserToCustomer(user: SupabaseAuthUser): AuthUser {
 }
 
 function mapVendorApplication(row: VendorApplicationRow): VendorApplication {
+  const logoPreview = row.logo_path && supabase
+    ? supabase.storage.from("store-assets").getPublicUrl(row.logo_path).data.publicUrl
+    : "";
   return {
     id: row.id,
     userId: row.user_id,
@@ -301,24 +437,26 @@ function mapVendorApplication(row: VendorApplicationRow): VendorApplication {
     address: row.address,
     description: row.description,
     category: row.category,
-    logoName: "Pending storage setup",
-    logoPreview: "",
-    verificationDocumentName: "Pending storage setup",
+    logoName: row.logo_path?.split("/").at(-1) ?? "No logo",
+    logoPreview,
+    verificationDocumentName: row.verification_document_path?.split("/").at(-1) ?? "No verification document",
+    logoPath: row.logo_path ?? undefined,
+    verificationDocumentPath: row.verification_document_path ?? undefined,
     submittedAt: new Date(row.created_at).toLocaleString()
   };
 }
 
 const categories = [
   ["Electronics", "0 products", "https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=500&q=80"],
+  ["Phones & Tablets", "0 products", "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=500&q=80"],
   ["Fashion", "0 products", "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=500&q=80"],
-  ["Home Living", "0 products", "https://images.unsplash.com/photo-1556228453-efd6c1ff04f6?auto=format&fit=crop&w=500&q=80"],
   ["Beauty", "0 products", "https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=500&q=80"],
-  ["Phones", "0 products", "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=500&q=80"],
-  ["Computers", "0 products", "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=500&q=80"],
-  ["Sports", "0 products", "https://images.unsplash.com/photo-1517649763962-0c623066013b?auto=format&fit=crop&w=500&q=80"],
+  ["Home & Kitchen", "0 products", "https://images.unsplash.com/photo-1556228453-efd6c1ff04f6?auto=format&fit=crop&w=500&q=80"],
+  ["Groceries", "0 products", "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=500&q=80"],
   ["Automotive", "0 products", "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=500&q=80"],
+  ["Computers", "0 products", "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=500&q=80"],
   ["Baby Products", "0 products", "https://images.unsplash.com/photo-1546015720-b8b30df5aa27?auto=format&fit=crop&w=500&q=80"],
-  ["Books", "0 products", "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=500&q=80"]
+  ["Industrial Supplies", "0 products", "https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?auto=format&fit=crop&w=500&q=80"]
 ];
 
 const roleLabels: Record<Role, string> = {
@@ -326,6 +464,31 @@ const roleLabels: Record<Role, string> = {
   VENDOR: "Vendor",
   CUSTOMER: "Customer"
 };
+
+const reportReasons = [
+  "Fake product",
+  "Scam or fraud",
+  "Prohibited item",
+  "Offensive content",
+  "Wrong category",
+  "Copyright/trademark issue",
+  "Other"
+];
+
+const prohibitedTerms = [
+  "weapon",
+  "gun",
+  "ammunition",
+  "drug",
+  "cocaine",
+  "stolen",
+  "counterfeit",
+  "fake id",
+  "adult explicit",
+  "hate",
+  "violent",
+  "dangerous chemical"
+];
 
 const navSections = [
   {
@@ -363,13 +526,16 @@ const navSections = [
   }
 ] as const;
 
-const publicPages: PageId[] = ["home", "categories", "stores", "deals", "product", "profile"];
+const policyPages: PageId[] = ["terms", "privacy", "delete-account", "prohibited-items", "seller-policy", "about", "help", "contact"];
+const publicPages: PageId[] = ["home", "categories", "retail", "wholesale", "buyer-protection", "rfq", "stores", "deals", "product", "login", "signup", "verify-email", "forgot-password", "reset-password", ...policyPages];
 
 const rolePages: Record<Role, PageId[]> = {
-  CUSTOMER: ["home", "categories", "stores", "deals", "track", "cart", "checkout", "wishlist", "messages", "notifications", "profile", "product", "order-confirmation", "payment-success", "payment-failure"],
-  VENDOR: ["home", "categories", "stores", "deals", "vendor", "products", "payments", "logistics", "reviews", "notifications", "analytics", "profile", "product"],
-  ADMIN: ["home", "categories", "stores", "deals", "admin", "categories", "stores", "payments", "logistics", "reviews", "notifications", "analytics", "ai", "profile", "product"]
+  CUSTOMER: ["home", "categories", "retail", "wholesale", "buyer-protection", "rfq", "stores", "deals", "track", "cart", "checkout", "wishlist", "messages", "notifications", "account", "profile", "product", "order-confirmation", "payment-success", "payment-failure", ...policyPages],
+  VENDOR: ["home", "categories", "retail", "wholesale", "buyer-protection", "rfq", "stores", "deals", "vendor", "products", "payments", "logistics", "reviews", "notifications", "analytics", "account", "profile", "product", ...policyPages],
+  ADMIN: ["home", "categories", "retail", "wholesale", "buyer-protection", "rfq", "stores", "deals", "admin", "payments", "logistics", "reviews", "notifications", "analytics", "ai", "account", "profile", "product", ...policyPages]
 };
+
+const privateWorkspacePages: PageId[] = ["vendor", "admin", "products", "payments", "logistics", "reviews", "notifications", "analytics", "ai"];
 
 function canAccessPage(page: PageId, user: AuthUser | null) {
   if (publicPages.includes(page)) return true;
@@ -377,13 +543,41 @@ function canAccessPage(page: PageId, user: AuthUser | null) {
   return rolePages[user.role].includes(page);
 }
 
+const pagePaths: Partial<Record<PageId, string>> = {
+  home: "/",
+  admin: "/admin",
+  profile: "/profile",
+  account: "/account",
+  login: "/login",
+  signup: "/signup",
+  "verify-email": "/verify-email",
+  "forgot-password": "/forgot-password",
+  "reset-password": "/reset-password",
+  terms: "/terms",
+  privacy: "/privacy",
+  "delete-account": "/delete-account",
+  "prohibited-items": "/prohibited-items",
+  "seller-policy": "/seller-policy",
+  about: "/about",
+  help: "/help",
+  contact: "/contact",
+  products: "/seller/products"
+};
+
+function pageFromPath(pathname: string): PageId {
+  return (Object.entries(pagePaths).find(([, path]) => path === pathname)?.[0] as PageId | undefined) ?? "home";
+}
+
 function App() {
-  const [page, setPage] = useState<PageId>("home");
+  const [page, setPage] = useState<PageId>(() => pageFromPath(window.location.pathname));
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [vendorApplications, setVendorApplications] = useState<VendorApplication[]>([]);
+  const [productReports, setProductReports] = useState<ProductReport[]>([]);
+  const [sellerReports, setSellerReports] = useState<SellerReportRecord[]>([]);
+  const [accountDeletionRequests, setAccountDeletionRequests] = useState<AccountDeletionRequestRecord[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -395,6 +589,10 @@ function App() {
   const [filters, setFilters] = useState({ category: "All", maxPrice: "" });
   const [authLoading, setAuthLoading] = useState(true);
   const [authPrompt, setAuthPrompt] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [catalogMessage, setCatalogMessage] = useState("");
+  const [returnPage, setReturnPage] = useState<PageId>("home");
+  const [verificationEmail, setVerificationEmail] = useState(() => window.localStorage.getItem("markethubPendingVerificationEmail") ?? "");
   const customerProducts = useMemo(
     () => products.filter((product) => product.status === "Published" && product.stock > 0),
     [products]
@@ -427,13 +625,14 @@ function App() {
           rating: 0,
           location: vendor.address ?? "Not set",
           logo: (vendor.storeName ?? vendor.name).slice(0, 2).toUpperCase(),
+          vendorUserId: vendor.id,
           logoUrl: vendor.storeLogoUrl,
           bannerUrl: vendor.storeBannerUrl,
           description: vendor.storeDescription
         })),
     [products, users]
   );
-  const rememberAuthenticatedUser = (mappedUser: AuthUser) => {
+  const rememberAuthenticatedUser = (mappedUser: AuthUser, redirect = false) => {
     setAuthPrompt("");
     setCurrentUser(mappedUser);
     setUsers((currentUsers) => {
@@ -442,12 +641,12 @@ function App() {
         ? currentUsers.map((user) => (user.id === mappedUser.id ? mappedUser : user))
         : [...currentUsers, mappedUser];
     });
-    setPage(mappedUser.role === "ADMIN" ? "admin" : "home");
+    if (redirect) setPage(mappedUser.role === "ADMIN" ? "admin" : returnPage);
   };
-  const loadProfile = async (authUser: SupabaseAuthUser) => {
+  const loadProfile = async (authUser: SupabaseAuthUser, redirect = false) => {
     const fallbackUser = mapAuthUserToCustomer(authUser);
     if (!supabase) {
-      rememberAuthenticatedUser(fallbackUser);
+      rememberAuthenticatedUser(fallbackUser, redirect);
       return fallbackUser;
     }
     const client = supabase;
@@ -458,7 +657,7 @@ function App() {
       .single<ProfileRow>();
 
     if (profileError || !profile) {
-      rememberAuthenticatedUser(fallbackUser);
+      rememberAuthenticatedUser(fallbackUser, redirect);
       return fallbackUser;
     }
 
@@ -469,7 +668,7 @@ function App() {
       .maybeSingle<StoreRow>();
 
     const mappedUser = mapProfileToUser(profile, store);
-    rememberAuthenticatedUser(mappedUser);
+    rememberAuthenticatedUser(mappedUser, redirect);
     return mappedUser;
   };
   const loadVendorApplications = async (user: AuthUser | null) => {
@@ -487,8 +686,39 @@ function App() {
 
     if (!error && data) {
       setVendorApplications(data.map(mapVendorApplication));
+      if (user.role === "CUSTOMER" && data.some((application) => application.status === "PENDING")) {
+        setCurrentUser((current) => current?.id === user.id ? { ...current, vendorStatus: "PENDING" } : current);
+      }
     }
   };
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    loadPublishedProducts()
+      .then((catalog) => {
+        if (active) setProducts(catalog.map(mapCatalogProduct));
+      })
+      .catch(() => {
+        if (active) setCatalogMessage("Products could not be refreshed. Please try again shortly.");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!supabase || currentUser?.role !== "ADMIN") return;
+    Promise.all([loadProductReports(), loadSellerReports(), loadAccountDeletionRequests()])
+      .then(([productReportData, sellerReportData, deletionRequestData]) => {
+        setProductReports(productReportData);
+        setSellerReports(sellerReportData);
+        setAccountDeletionRequests(deletionRequestData);
+      })
+      .catch(() => {
+        setProductReports([]);
+        setSellerReports([]);
+        setAccountDeletionRequests([]);
+      });
+  }, [currentUser?.role]);
   useEffect(() => {
     if (!supabase) {
       setAuthLoading(false);
@@ -524,6 +754,31 @@ function App() {
   useEffect(() => {
     void loadVendorApplications(currentUser);
   }, [currentUser?.id, currentUser?.role]);
+  useEffect(() => {
+    if (authLoading) return;
+    if (page === "admin" && !currentUser) {
+      setAuthPrompt("Admin access requires an authorised administrator account.");
+      setPage("login");
+      window.history.replaceState({}, "", "/login");
+      return;
+    }
+    if (!currentUser && !publicPages.includes(page)) {
+      setAuthPrompt("Please log in or create an account to continue.");
+      setReturnPage(page);
+      setPage("login");
+      window.history.replaceState({}, "", "/login");
+      return;
+    }
+    const nextPath = pagePaths[page] ?? "/";
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+  }, [authLoading, currentUser, page]);
+  useEffect(() => {
+    const handlePopState = () => setPage(pageFromPath(window.location.pathname));
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
@@ -531,20 +786,23 @@ function App() {
     }))
     .filter((section) => section.items.length > 0);
   const changePage = (nextPage: PageId) => {
+    setMobileMenuOpen(false);
     if (canAccessPage(nextPage, currentUser)) {
       setPage(nextPage);
       return;
     }
     if (!currentUser) {
+      setReturnPage(page);
       setAuthPrompt("Please log in or create an account to continue.");
-      setPage("profile");
+      setPage("login");
       return;
     }
-    setPage("profile");
+    setPage("account");
   };
   const requestAuthentication = () => {
+    setReturnPage(page);
     setAuthPrompt("Please log in or create an account to continue.");
-    setPage("profile");
+    setPage("login");
   };
   const openProduct = (productId: number) => {
     setSelectedProductId(productId);
@@ -847,6 +1105,11 @@ function App() {
     );
   };
   const unreadMessageCount = getUnreadMessageCount(currentUser, conversations);
+  const usesDashboardShell = Boolean(
+    currentUser &&
+    ["VENDOR", "ADMIN"].includes(currentUser.role) &&
+    privateWorkspacePages.includes(page)
+  );
   const logout = async () => {
     if (supabase) {
       await supabase.auth.signOut();
@@ -857,8 +1120,8 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={usesDashboardShell ? "app-shell" : "marketplace-shell"}>
+      {usesDashboardShell ? <aside className="sidebar">
         <button className="brand" onClick={() => changePage("home")}>
           <span className="brand-mark">M</span>
           <span>
@@ -892,11 +1155,25 @@ function App() {
           <span>Vendor tools, mobile money, analytics, and regional commerce.</span>
           {!currentUser ? <button onClick={requestAuthentication}>Become a Vendor</button> : null}
         </div>
-      </aside>
+      </aside> : null}
 
       <main className="main-area">
-        <TopBar query={query} setQuery={setQuery} setPage={changePage} user={currentUser} onLogout={logout} cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)} unreadMessageCount={unreadMessageCount} authLoading={authLoading} />
+        {usesDashboardShell ? (
+          <TopBar query={query} setQuery={setQuery} setPage={changePage} user={currentUser} onLogout={logout} cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)} unreadMessageCount={unreadMessageCount} authLoading={authLoading} />
+        ) : (
+          <MarketplaceHeader
+            query={query}
+            setQuery={setQuery}
+            setPage={changePage}
+            user={currentUser}
+            onLogout={logout}
+            cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
+            mobileMenuOpen={mobileMenuOpen}
+            setMobileMenuOpen={setMobileMenuOpen}
+          />
+        )}
         <div className="content">
+          {catalogMessage ? <FormMessage error={catalogMessage} success="" /> : null}
           {renderPage({
             page,
             setPage: changePage,
@@ -908,11 +1185,18 @@ function App() {
             setUsers,
             currentUser,
             setCurrentUser,
-            onAuthenticated: loadProfile,
+            onAuthenticated: (authUser) => loadProfile(authUser, true),
             authPrompt,
             setAuthPrompt,
+            verificationEmail,
+            setVerificationEmail,
             vendorApplications,
             setVendorApplications,
+            productReports,
+            setProductReports,
+            sellerReports,
+            setSellerReports,
+            accountDeletionRequests,
             selectedProductId,
             setSelectedProductId,
             cartItems,
@@ -937,8 +1221,150 @@ function App() {
             markConversationRead
           })}
         </div>
+        {!usesDashboardShell ? <MarketplaceFooter setPage={changePage} /> : null}
+        {!usesDashboardShell ? <MobileMarketplaceNav page={page} setPage={changePage} user={currentUser} /> : null}
       </main>
     </div>
+  );
+}
+
+function MarketplaceHeader({
+  query,
+  setQuery,
+  setPage,
+  user,
+  onLogout,
+  cartCount,
+  mobileMenuOpen,
+  setMobileMenuOpen
+}: {
+  query: string;
+  setQuery: (query: string) => void;
+  setPage: (page: PageId) => void;
+  user: AuthUser | null;
+  onLogout: () => void;
+  cartCount: number;
+  mobileMenuOpen: boolean;
+  setMobileMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
+  const publicLinks: Array<[PageId, string]> = [
+    ["categories", "Categories"],
+    ["retail", "Retail"],
+    ["wholesale", "Wholesale"],
+    ["deals", "Deals"],
+    ["buyer-protection", "Buyer Protection"],
+    ["stores", "Stores"]
+  ];
+
+  return (
+    <header className="marketplace-header">
+      <div className="marketplace-header-main">
+        <button className="mobile-menu-button" title="Open menu" onClick={() => setMobileMenuOpen((open) => !open)}>
+          {mobileMenuOpen ? <X size={21} /> : <Menu size={21} />}
+        </button>
+        <button className="marketplace-logo" onClick={() => setPage("home")}>
+          <span className="brand-mark">M</span>
+          <span><strong>MarketHub</strong><small>Ghana to Africa</small></span>
+        </button>
+        <label className="marketplace-search">
+          <Search size={18} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products, suppliers and stores" />
+          <button type="button" onClick={() => setPage("retail")}>Search</button>
+        </label>
+        <button className="delivery-selector" title="Delivery location">
+          <MapPin size={18} />
+          <span><small>Deliver to</small><strong>Ghana / Accra</strong></span>
+        </button>
+        <div className="marketplace-account-actions">
+          {user ? (
+            <>
+              <div className="marketplace-account-menu">
+                <button className="account-button" onClick={() => setPage("profile")} aria-haspopup="true">
+                  <span className="account-avatar-small">{user.name.slice(0, 2).toUpperCase()}</span>
+                  <span><small>Hello,</small><strong>{user.name}</strong></span>
+                </button>
+                <div className="account-dropdown" role="menu">
+                  <div className="account-dropdown-head">
+                    <span className="account-avatar-small large">{user.name.slice(0, 2).toUpperCase()}</span>
+                    <div>
+                      <strong>{user.name}</strong>
+                      <small>{roleLabels[user.role]} account</small>
+                    </div>
+                  </div>
+                  <button onClick={() => setPage("profile")}><User size={16} /> Profile Information</button>
+                  <button onClick={() => setPage("account")}><LayoutDashboard size={16} /> My Account Center</button>
+                  {user.role === "CUSTOMER" ? <button onClick={() => setPage("track")}><PackageCheck size={16} /> My Orders</button> : null}
+                  {user.role === "VENDOR" && user.vendorStatus === "APPROVED" ? <button onClick={() => setPage("vendor")}><Store size={16} /> Seller Dashboard</button> : null}
+                  {user.role === "ADMIN" ? <button onClick={() => setPage("admin")}><ShieldCheck size={16} /> Admin Dashboard</button> : null}
+                  <button onClick={onLogout}><LogOut size={16} /> Log Out</button>
+                </div>
+              </div>
+              {user.role === "CUSTOMER" ? <button className="text-action" onClick={() => setPage("track")}>My Orders</button> : null}
+              {user.role === "VENDOR" && user.vendorStatus === "APPROVED" ? <button className="text-action" onClick={() => setPage("vendor")}>Seller Dashboard</button> : null}
+              {user.role === "ADMIN" ? <button className="text-action" onClick={() => setPage("admin")}>Admin Dashboard</button> : null}
+              <button className="icon-action" title="Wishlist" onClick={() => setPage("wishlist")}><Heart size={19} /></button>
+              <button className="icon-action" title="Cart" onClick={() => setPage("cart")}><ShoppingCart size={19} />{cartCount > 0 ? <span className="cart-badge">{cartCount}</span> : null}</button>
+            </>
+          ) : (
+            <>
+              <button className="text-action" onClick={() => setPage("login")}>Log In</button>
+              <button className="create-account-action" onClick={() => setPage("signup")}>Create Account</button>
+              <button className="icon-action" title="Wishlist" onClick={() => setPage("wishlist")}><Heart size={19} /></button>
+              <button className="icon-action" title="Cart" onClick={() => setPage("cart")}><ShoppingCart size={19} /></button>
+            </>
+          )}
+        </div>
+      </div>
+      <nav className={mobileMenuOpen ? "marketplace-nav open" : "marketplace-nav"}>
+        {publicLinks.map(([id, label]) => <button key={id} onClick={() => setPage(id)}>{label}</button>)}
+        <button className="sell-link" onClick={() => setPage(user ? (user.role === "VENDOR" ? "vendor" : "account") : "login")}><Store size={16} /> Sell on MarketHub</button>
+        <button className="rfq-link" onClick={() => setPage("rfq")}><Send size={16} /> Request a Quote</button>
+      </nav>
+    </header>
+  );
+}
+
+function MobileMarketplaceNav({ page, setPage, user }: { page: PageId; setPage: (page: PageId) => void; user: AuthUser | null }) {
+  const items: Array<[PageId, string, typeof Home]> = [
+    ["home", "Home", Home],
+    ["categories", "Categories", Boxes],
+    [user?.role === "VENDOR" && user.vendorStatus === "APPROVED" ? "vendor" : user ? "account" : "login", "Sell", Store],
+    ["cart", "Cart", ShoppingCart],
+    ["account", "Account", User]
+  ];
+  return (
+    <nav className="marketplace-bottom-nav">
+      {items.map(([id, label, Icon]) => (
+        <button className={page === id ? "active" : ""} key={id} onClick={() => setPage(id)}>
+          <Icon size={19} />
+          <span>{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function MarketplaceFooter({ setPage }: { setPage: (page: PageId) => void }) {
+  const links: Array<[PageId, string]> = [
+    ["about", "About MarketHub"],
+    ["help", "Help Center"],
+    ["contact", "Contact"],
+    ["terms", "Terms"],
+    ["privacy", "Privacy Policy"],
+    ["delete-account", "Delete Account"],
+    ["seller-policy", "Seller Policy"],
+    ["prohibited-items", "Prohibited Items"]
+  ];
+  return (
+    <footer className="marketplace-footer">
+      <div>
+        <strong>MarketHub</strong>
+        <p>Ghana-focused retail and wholesale marketplace for trusted buyers and approved sellers.</p>
+      </div>
+      <nav>
+        {links.map(([id, label]) => <button key={id} onClick={() => setPage(id)}>{label}</button>)}
+      </nav>
+    </footer>
   );
 }
 
@@ -1000,8 +1426,8 @@ function TopBar({
           </button>
         ) : (
           <>
-            <button className="auth-action-button" disabled={authLoading} onClick={() => setPage("profile")}>Log In</button>
-            <button className="auth-action-button primary" disabled={authLoading} onClick={() => setPage("profile")}>Create Account</button>
+            <button className="auth-action-button" disabled={authLoading} onClick={() => setPage("login")}>Log In</button>
+            <button className="auth-action-button primary" disabled={authLoading} onClick={() => setPage("signup")}>Create Account</button>
           </>
         )}
       </div>
@@ -1023,8 +1449,15 @@ function renderPage({
   onAuthenticated,
   authPrompt,
   setAuthPrompt,
+  verificationEmail,
+  setVerificationEmail,
   vendorApplications,
   setVendorApplications,
+  productReports,
+  setProductReports,
+  sellerReports,
+  setSellerReports,
+  accountDeletionRequests,
   selectedProductId,
   setSelectedProductId,
   cartItems,
@@ -1061,8 +1494,15 @@ function renderPage({
   onAuthenticated: (authUser: SupabaseAuthUser) => Promise<AuthUser>;
   authPrompt: string;
   setAuthPrompt: React.Dispatch<React.SetStateAction<string>>;
+  verificationEmail: string;
+  setVerificationEmail: React.Dispatch<React.SetStateAction<string>>;
   vendorApplications: VendorApplication[];
   setVendorApplications: React.Dispatch<React.SetStateAction<VendorApplication[]>>;
+  productReports: ProductReport[];
+  setProductReports: React.Dispatch<React.SetStateAction<ProductReport[]>>;
+  sellerReports: SellerReportRecord[];
+  setSellerReports: React.Dispatch<React.SetStateAction<SellerReportRecord[]>>;
+  accountDeletionRequests: AccountDeletionRequestRecord[];
   selectedProductId: number | null;
   setSelectedProductId: React.Dispatch<React.SetStateAction<number | null>>;
   cartItems: CartItem[];
@@ -1102,11 +1542,19 @@ function renderPage({
 
   switch (page) {
     case "home":
-      return <HomePage setPage={setPage} onBecomeVendor={() => { setAuthPrompt("Please log in or create an account to continue."); setPage("profile"); }} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
+      return <HomePage setPage={setPage} onBecomeVendor={() => { setAuthPrompt("Please log in or create an account to continue."); setPage(currentUser ? "account" : "login"); }} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
     case "categories":
       return <CategoriesPage setPage={setPage} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
+    case "retail":
+      return <RetailPage setPage={setPage} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
+    case "wholesale":
+      return <WholesalePage products={filteredProducts} setPage={setPage} onOpenProduct={openProduct} />;
+    case "buyer-protection":
+      return <BuyerProtectionPage setPage={setPage} />;
+    case "rfq":
+      return <RequestQuotePage setPage={setPage} />;
     case "stores":
-      return <StoresPage stores={stores} />;
+      return <StoresPage stores={stores} currentUser={currentUser} />;
     case "deals":
       return <DealsPage setPage={setPage} products={filteredProducts} filters={filters} setFilters={setFilters} onOpenProduct={openProduct} onAddToCart={addToCart} />;
     case "track":
@@ -1125,6 +1573,7 @@ function renderPage({
       return (
         <RoleGuard user={currentUser} roles={["ADMIN"]} setPage={setPage}>
           <AdminDashboard
+            adminUser={currentUser}
             users={users}
             setUsers={setUsers}
             products={products}
@@ -1134,6 +1583,11 @@ function renderPage({
             payoutRequests={payoutRequests}
             vendorApplications={vendorApplications}
             setVendorApplications={setVendorApplications}
+            productReports={productReports}
+            setProductReports={setProductReports}
+            sellerReports={sellerReports}
+            setSellerReports={setSellerReports}
+            accountDeletionRequests={accountDeletionRequests}
           />
         </RoleGuard>
       );
@@ -1151,10 +1605,31 @@ function renderPage({
       return <RoleGuard user={currentUser} roles={["VENDOR", "ADMIN"]} setPage={setPage}><AnalyticsPage /></RoleGuard>;
     case "ai":
       return <RoleGuard user={currentUser} roles={["ADMIN"]} setPage={setPage}><AiPage /></RoleGuard>;
+    case "account":
+      return <ProfilePage user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} onAuthenticated={onAuthenticated} authPrompt={authPrompt} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} initialMode="login" />;
+    case "login":
+      return <ProfilePage user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} onAuthenticated={onAuthenticated} authPrompt={authPrompt} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} initialMode="login" />;
+    case "signup":
+      return <ProfilePage user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} onAuthenticated={onAuthenticated} authPrompt={authPrompt} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} initialMode="signup" setVerificationEmail={setVerificationEmail} />;
+    case "verify-email":
+      return <VerifyEmailCodePage initialEmail={verificationEmail} setVerificationEmail={setVerificationEmail} setPage={setPage} onAuthenticated={onAuthenticated} />;
+    case "forgot-password":
+      return <PasswordRecoveryPage mode="request" setPage={setPage} />;
+    case "reset-password":
+      return <PasswordRecoveryPage mode="reset" setPage={setPage} />;
     case "profile":
-      return <ProfilePage setUsers={setUsers} user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} onAuthenticated={onAuthenticated} authPrompt={authPrompt} vendorApplications={vendorApplications} setVendorApplications={setVendorApplications} />;
+      return <UserProfilePage setUsers={setUsers} user={currentUser} setCurrentUser={setCurrentUser} setPage={setPage} />;
     case "product":
-      return <ProductDetailsPage product={products.find((product) => product.id === selectedProductId) ?? null} setPage={setPage} setSelectedProductId={setSelectedProductId} onAddToCart={addToCart} onMessageVendor={messageVendorFromProduct} />;
+      return <ProductDetailsPage product={products.find((product) => product.id === selectedProductId) ?? null} products={filteredProducts} currentUser={currentUser} setPage={setPage} setSelectedProductId={setSelectedProductId} onAddToCart={addToCart} onMessageVendor={messageVendorFromProduct} />;
+    case "terms":
+    case "privacy":
+    case "delete-account":
+    case "prohibited-items":
+    case "seller-policy":
+    case "about":
+    case "help":
+    case "contact":
+      return <PolicyPage page={page} user={currentUser} setPage={setPage} />;
     case "order-confirmation":
       return <OrderConfirmationPage order={orders.find((order) => order.id === confirmedOrderId) ?? null} payment={payments.find((payment) => payment.reference === activePaymentReference) ?? null} setPage={setPage} />;
     case "payment-success":
@@ -1167,6 +1642,7 @@ function renderPage({
 function PageIntro({
   kicker,
   title,
+  copy,
   actions
 }: {
   kicker: string;
@@ -1179,6 +1655,7 @@ function PageIntro({
       <div>
         <p className="eyebrow">{kicker}</p>
         <h2>{title}</h2>
+        {copy ? <p className="page-intro-copy">{copy}</p> : null}
       </div>
       {actions ? <div className="intro-actions">{actions}</div> : null}
     </section>
@@ -1211,12 +1688,14 @@ function HomePage({
     <>
       <section className="hero">
         <div className="hero-copy">
-          <p>MarketHub launch marketplace</p>
-          <h2>Shop trusted local vendors across Ghana</h2>
-          <button onClick={() => setPage("categories")}>
-            Explore Categories
-            <ChevronRight size={17} />
-          </button>
+          <p>Ghana's retail and wholesale marketplace</p>
+          <h2>Shop Ghana. Source Africa. Trade with confidence.</h2>
+          <span>Buy trusted products or connect with verified suppliers for wholesale orders.</span>
+          <div className="hero-actions">
+            <button onClick={() => setPage("retail")}>Shop Retail <ChevronRight size={17} /></button>
+            <button className="hero-secondary" onClick={() => setPage("wholesale")}>Buy Wholesale</button>
+            <button className="hero-secondary" onClick={onBecomeVendor}>Start Selling</button>
+          </div>
         </div>
         <div className="hero-products">
           {hasProducts ? (
@@ -1232,15 +1711,19 @@ function HomePage({
       {!hasProducts ? <MarketplaceLaunchMessage setPage={setPage} onBecomeVendor={onBecomeVendor} /> : null}
       <SectionHeader title="Featured Categories" action="View all" onClick={() => setPage("categories")} />
       <CategoryStrip setPage={setPage} />
-      <SectionHeader title="Trending Products" />
+      <SectionHeader title="Flash Deals" action="View deals" onClick={() => setPage("deals")} />
       <ProductFilters filters={filters} setFilters={setFilters} />
-      <ProductGrid products={trendingProducts} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="No trending products yet" emptyCopy="Vendor uploads will appear here once the marketplace opens." />
+      <ProductGrid products={dealProducts} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="Flash deals are warming up" emptyCopy="Limited-time offers will appear here when verified vendors publish them." />
+      <SectionHeader title="Top Selling Products" action="Shop retail" onClick={() => setPage("retail")} />
+      <ProductGrid products={trendingProducts} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="The marketplace is opening soon" emptyCopy="Popular products will appear as customers begin shopping." />
       <SectionHeader title="New Arrivals" />
       <ProductGrid products={newArrivals} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="No new arrivals yet" emptyCopy="Fresh vendor products will appear here." />
       <SectionHeader title="Featured Vendors" action="Stores" onClick={() => setPage("stores")} />
       <FeaturedVendorStrip />
-      <SectionHeader title="Deals" action="View deals" onClick={() => setPage("deals")} />
-      <ProductGrid products={dealProducts} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="No deals yet" emptyCopy="Discounted products will appear after vendors publish offers." />
+      <SectionHeader title="Wholesale Deals" action="Source products" onClick={() => setPage("wholesale")} />
+      <WholesalePreview setPage={setPage} />
+      <SectionHeader title="Recommended For You" />
+      <ProductGrid products={products.slice(0, 4)} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="Recommendations will grow with the marketplace" emptyCopy="Browse categories now and return as vendors publish new products." />
       <TrustSection />
     </>
   );
@@ -1276,14 +1759,32 @@ function FeaturedVendorStrip() {
   );
 }
 
+function WholesalePreview({ setPage }: { setPage: (page: PageId) => void }) {
+  return (
+    <section className="wholesale-preview">
+      <div>
+        <p className="eyebrow">Business sourcing</p>
+        <h3>Buy in bulk from Ghanaian and African suppliers</h3>
+        <p>Compare minimum order quantities, request supplier quotations, and plan bulk delivery from one sourcing workspace.</p>
+      </div>
+      <div className="wholesale-preview-actions">
+        <button onClick={() => setPage("wholesale")}>Explore Wholesale</button>
+        <button className="ghost-button" onClick={() => setPage("rfq")}>Request a Quote</button>
+      </div>
+    </section>
+  );
+}
+
 function TrustSection() {
   return (
     <section className="trust-grid">
       {[
-        ["Online payments coming soon", CreditCard],
-        ["Verified vendors", ShieldCheck],
-        ["Order tracking", Truck],
-        ["Customer support", MessageSquare]
+        ["Verified Vendors", BadgeCheck],
+        ["Mobile Money Payments", CreditCard],
+        ["Buyer Protection", ShieldCheck],
+        ["Nationwide Delivery", Truck],
+        ["Easy Returns", RotateCcw],
+        ["Customer Support", Headphones]
       ].map(([label, Icon]) => (
         <article key={label as string}>
           <Icon size={22} />
@@ -1414,12 +1915,16 @@ function ProductGrid({
 
 function ProductDetailsPage({
   product,
+  products,
+  currentUser,
   setPage,
   setSelectedProductId,
   onAddToCart,
   onMessageVendor
 }: {
   product: Product | null;
+  products: Product[];
+  currentUser: AuthUser | null;
   setPage: (page: PageId) => void;
   setSelectedProductId: React.Dispatch<React.SetStateAction<number | null>>;
   onAddToCart: (productId: number, quantity?: number) => string;
@@ -1429,6 +1934,11 @@ function ProductDetailsPage({
   const [message, setMessage] = useState({ error: "", success: "" });
   const [vendorMessage, setVendorMessage] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [selectedColour, setSelectedColour] = useState("Standard");
+  const [selectedSize, setSelectedSize] = useState("Standard");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportForm, setReportForm] = useState({ reason: "Fake product", description: "" });
+  const [reportWorking, setReportWorking] = useState(false);
 
   if (!product || product.status !== "Published" || product.stock <= 0) {
     return (
@@ -1459,6 +1969,31 @@ function ProductDetailsPage({
     }
     setMessage({ error: result, success: "" });
   };
+  const relatedProducts = products.filter((item) => item.id !== product.id && item.category === product.category).slice(0, 4);
+  const submitReport = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!product.databaseId || !product.sellerUserId) {
+      setMessage({ error: "This product cannot be reported yet because it is missing marketplace records.", success: "" });
+      return;
+    }
+    setReportWorking(true);
+    try {
+      await createProductReport({
+        productId: product.databaseId,
+        sellerUserId: product.sellerUserId,
+        reporterUserId: currentUser?.id,
+        reason: reportForm.reason,
+        description: reportForm.description.trim()
+      });
+      setReportOpen(false);
+      setReportForm({ reason: "Fake product", description: "" });
+      setMessage({ error: "", success: "Thank you. This product has been reported for admin review." });
+    } catch (error) {
+      setMessage({ error: error instanceof Error ? error.message : "Could not submit report.", success: "" });
+    } finally {
+      setReportWorking(false);
+    }
+  };
 
   return (
     <>
@@ -1478,6 +2013,7 @@ function ProductDetailsPage({
               </button>
             ))}
           </div>
+          {product.videoUrl ? <video className="product-video" controls preload="metadata" src={product.videoUrl} /> : null}
         </div>
         <aside className="product-info-panel">
           <p className="eyebrow">{product.brand} | {product.condition}</p>
@@ -1485,13 +2021,48 @@ function ProductDetailsPage({
           <p>{product.description}</p>
           <strong>{currency.format(product.discountPrice || product.price)}</strong>
           {product.discountPrice ? <del>{currency.format(product.price)}</del> : null}
+          {product.wholesalePrice ? <SummaryLine label="Wholesale price" value={`${currency.format(product.wholesalePrice)} from ${product.minimumOrderQuantity ?? 1} units`} /> : null}
           <SummaryLine label="Stock" value={`${product.stock} available`} />
           <SummaryLine label="SKU" value={product.sku} />
           <SummaryLine label="Vendor" value={product.vendor} />
           <SummaryLine label="Delivery" value={product.deliveryOptions.join(", ")} />
+          <div className="variant-group">
+            <span>Colour</span>
+            {["Standard", "Black", "White"].map((colour) => <button className={selectedColour === colour ? "active" : ""} key={colour} onClick={() => setSelectedColour(colour)}>{colour}</button>)}
+          </div>
+          <div className="variant-group">
+            <span>Size</span>
+            {["Standard", "Small", "Large"].map((size) => <button className={selectedSize === size ? "active" : ""} key={size} onClick={() => setSelectedSize(size)}>{size}</button>)}
+          </div>
+          <div className="delivery-estimate"><Truck size={20} /><div><strong>Delivery estimate</strong><span>Calculated when Ghana delivery integrations are active.</span></div></div>
           <FormMessage error={message.error} success={message.success} />
-          <button onClick={addToCart}>Add to Cart</button>
-          <button className="ghost-button">Save to Wishlist</button>
+          <div className="product-purchase-actions">
+            <button onClick={addToCart}>Add to Cart</button>
+            <button onClick={() => { const result = onAddToCart(product.id); if (result.includes("added")) setPage("checkout"); else setMessage({ error: result, success: "" }); }}>Buy Now</button>
+            <button className="ghost-button" onClick={() => setPage("wishlist")}>Save to Wishlist</button>
+          </div>
+          <section className="seller-card">
+            <Store size={23} />
+            <div><small>Sold by</small><strong>{product.vendor}</strong><span>Verification badge will appear only after vendor approval.</span></div>
+            <button className="ghost-button" onClick={() => setPage("stores")}>View Store</button>
+          </section>
+          <section className="report-card">
+            <ShieldCheck size={22} />
+            <div>
+              <strong>Marketplace safety</strong>
+              <span>Report suspicious, prohibited, counterfeit, or misleading listings.</span>
+            </div>
+            <button className="ghost-button" type="button" onClick={() => setReportOpen((open) => !open)}>Report Product</button>
+          </section>
+          {reportOpen ? (
+            <form className="report-form" onSubmit={submitReport}>
+              <select value={reportForm.reason} onChange={(event) => setReportForm((current) => ({ ...current, reason: event.target.value }))}>
+                {reportReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+              </select>
+              <textarea value={reportForm.description} onChange={(event) => setReportForm((current) => ({ ...current, description: event.target.value }))} placeholder="Tell us what looks unsafe or misleading..." maxLength={700} />
+              <button disabled={reportWorking}>{reportWorking ? "Submitting..." : "Submit Report"}</button>
+            </form>
+          ) : null}
           <form className="vendor-message-box" onSubmit={sendVendorMessage}>
             <h4>Message {product.vendor}</h4>
             <textarea
@@ -1504,8 +2075,16 @@ function ProductDetailsPage({
             <button disabled={isSendingMessage}>{isSendingMessage ? "Sending..." : "Message Vendor"}</button>
             <button className="ghost-button" type="button" onClick={() => setPage("messages")}>View Messages</button>
           </form>
+          <section className="buyer-protection-card">
+            <ShieldCheck size={24} />
+            <div><strong>MarketHub Buyer Protection</strong><p>Order, return, and dispute safeguards are being prepared. Online payments are not active yet.</p></div>
+            <button className="ghost-button" onClick={() => setPage("buyer-protection")}>Learn More</button>
+          </section>
+          <section className="returns-card"><RotateCcw size={22} /><div><strong>Returns and refunds</strong><span>Return eligibility and refund rules will be shown before real checkout launches.</span></div></section>
         </aside>
       </section>
+      <SectionHeader title="Related Products" action="Browse retail" onClick={() => setPage("retail")} />
+      <ProductGrid products={relatedProducts} onOpenProduct={(productId) => setSelectedProductId(productId)} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="More products are on the way" emptyCopy="Related items will appear as vendors publish their catalogues." />
     </>
   );
 }
@@ -1548,13 +2127,271 @@ function CategoriesPage({
   );
 }
 
-function StoresPage({ stores }: { stores: StoreItem[] }) {
+function RetailPage({
+  setPage,
+  products,
+  filters,
+  setFilters,
+  onOpenProduct,
+  onAddToCart
+}: {
+  setPage: (page: PageId) => void;
+  products: Product[];
+  filters: { category: string; maxPrice: string };
+  setFilters: React.Dispatch<React.SetStateAction<{ category: string; maxPrice: string }>>;
+  onOpenProduct: (productId: number) => void;
+  onAddToCart: (productId: number, quantity?: number) => string;
+}) {
+  return (
+    <>
+      <PageIntro kicker="Retail Marketplace" title="Everyday shopping from trusted sellers" copy="Browse products for personal and household use, with Ghana-focused delivery options and local vendor support." />
+      <ProductFilters filters={filters} setFilters={setFilters} />
+      <ProductGrid products={products} onOpenProduct={onOpenProduct} onAddToCart={onAddToCart} onWishlist={() => setPage("wishlist")} emptyTitle="Retail shelves are being prepared" emptyCopy="Explore categories while approved vendors prepare their first products." />
+    </>
+  );
+}
+
+function WholesalePage({ products, setPage, onOpenProduct }: { products: Product[]; setPage: (page: PageId) => void; onOpenProduct: (productId: number) => void }) {
+  return (
+    <>
+      <PageIntro
+        kicker="Wholesale Marketplace"
+        title="Source products for your business"
+        copy="Discover suppliers, compare indicative bulk pricing, and prepare quotation requests for larger orders."
+        actions={<button onClick={() => setPage("rfq")}>Request for Quotation</button>}
+      />
+      {products.length > 0 ? (
+        <section className="wholesale-grid">
+          {products.map((product) => (
+            <article className="wholesale-card" key={product.id}>
+              <img src={product.image} alt={product.name} />
+              <div>
+                <span className="supplier-label">Supplier verification pending</span>
+                <h3>{product.name}</h3>
+                <p>{product.vendor}</p>
+                <strong>From {currency.format(product.discountPrice || product.price)} per unit</strong>
+                <small>MOQ: Contact supplier</small>
+                <small>Bulk delivery: Quote required</small>
+                <div className="card-actions">
+                  <button onClick={() => setPage("rfq")}>Request Quote</button>
+                  <button className="ghost-button" onClick={() => onOpenProduct(product.id)}>Message Supplier</button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : (
+        <section className="wholesale-empty">
+          <Building2 size={48} />
+          <div>
+            <p className="eyebrow">Supplier network opening soon</p>
+            <h3>Wholesale sourcing is being prepared</h3>
+            <p>Approved suppliers and bulk products will appear here with MOQ, price tiers, and delivery information.</p>
+          </div>
+          <button onClick={() => setPage("rfq")}>Prepare a Quote Request</button>
+        </section>
+      )}
+      <WholesalePreview setPage={setPage} />
+    </>
+  );
+}
+
+function BuyerProtectionPage({ setPage }: { setPage: (page: PageId) => void }) {
+  return (
+    <>
+      <PageIntro kicker="MarketHub Buyer Protection" title="Confidence for every marketplace order" copy="Our buyer protection framework is being prepared to support transparent orders, seller accountability, returns, and dispute handling." />
+      <section className="protection-grid">
+        {[
+          ["Clear order records", ClipboardList, "Keep delivery and item details connected to each order."],
+          ["Verified vendor programme", BadgeCheck, "Vendor verification status will be shown only after review."],
+          ["Returns and dispute support", RotateCcw, "Future tools will help buyers request returns and resolve issues."],
+          ["Payment safeguards", ShieldCheck, "Online payments are not active yet. Protection workflows will launch with real payments."]
+        ].map(([title, Icon, copy]) => (
+          <article key={title as string}>
+            <Icon size={25} />
+            <h3>{title as string}</h3>
+            <p>{copy as string}</p>
+          </article>
+        ))}
+      </section>
+      <section className="protection-cta">
+        <div><p className="eyebrow">Shop with clarity</p><h3>Browse MarketHub while protection tools are prepared</h3></div>
+        <button onClick={() => setPage("retail")}>Browse Retail</button>
+      </section>
+    </>
+  );
+}
+
+function RequestQuotePage({ setPage }: { setPage: (page: PageId) => void }) {
+  return (
+    <>
+      <PageIntro kicker="Coming Soon" title="Request for Quotation" copy="A professional sourcing form is being prepared for businesses that need supplier quotes and bulk delivery plans." />
+      <section className="rfq-layout">
+        <form className="form-panel" onSubmit={(event) => event.preventDefault()}>
+          <div className="demo-notice"><strong>Coming soon</strong><span>Quotation requests are not saved or sent yet.</span></div>
+          <input placeholder="Product or sourcing requirement" disabled />
+          <select disabled><option>Select category</option></select>
+          <input placeholder="Required quantity" disabled />
+          <input placeholder="Delivery city or region" disabled />
+          <textarea placeholder="Specifications, quality requirements, packaging and timeline" disabled />
+          <button disabled>Submit Request Coming Soon</button>
+        </form>
+        <aside className="summary-panel">
+          <Building2 size={35} />
+          <h3>How supplier quotations will work</h3>
+          <p>Describe what your business needs, compare responses from relevant suppliers, and discuss bulk delivery before placing an order.</p>
+          <button className="ghost-button" onClick={() => setPage("wholesale")}>Explore Wholesale</button>
+        </aside>
+      </section>
+    </>
+  );
+}
+
+function PolicyPage({ page, user, setPage }: { page: PageId; user: AuthUser | null; setPage: (page: PageId) => void }) {
+  const [reason, setReason] = useState("");
+  const [message, setMessage] = useState({ error: "", success: "" });
+  const [working, setWorking] = useState(false);
+  const requestDeletion = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!user) {
+      setMessage({ error: "Please log in before requesting account deletion.", success: "" });
+      setPage("login");
+      return;
+    }
+    if (!window.confirm("Request account deletion? Some order, dispute, tax, and legal transaction records may need to be retained.")) return;
+    setWorking(true);
+    try {
+      await createAccountDeletionRequest({ userId: user.id, reason: reason.trim() });
+      setMessage({ error: "", success: "Account deletion request submitted for admin processing." });
+      setReason("");
+    } catch (error) {
+      setMessage({ error: error instanceof Error ? error.message : "Could not submit deletion request.", success: "" });
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  if (page === "prohibited-items") {
+    return (
+      <>
+        <PageIntro kicker="Marketplace Safety" title="Prohibited Items" copy="MarketHub sellers must follow Ghanaian law, platform rules, and app-store safety standards." />
+        <section className="policy-grid">
+          {["Illegal products", "Weapons", "Drugs", "Stolen goods", "Counterfeit goods", "Adult explicit content", "Hate or violent content", "Dangerous chemicals", "Fraudulent listings", "Products that violate Ghanaian law or platform rules"].map((item) => (
+            <article className="policy-card" key={item}><ShieldCheck size={22} /><strong>{item}</strong><p>Sellers must not create or publish listings in this category.</p></article>
+          ))}
+        </section>
+      </>
+    );
+  }
+
+  if (page === "seller-policy") {
+    return (
+      <>
+        <PageIntro kicker="Seller Policy" title="Seller Publishing Rules" copy="Approved sellers can publish immediately, but MarketHub uses post-publishing moderation to keep buyers safe." />
+        <section className="policy-panel">
+          <h3>Seller responsibilities</h3>
+          <p>Sellers must upload accurate titles, real product images or videos, correct categories, honest pricing, clear delivery options, and lawful products only.</p>
+          <p>Admins may suspend or remove products after review. Repeated violations may lead to seller suspension or banning.</p>
+        </section>
+      </>
+    );
+  }
+
+  if (page === "delete-account") {
+    return (
+      <>
+        <PageIntro kicker="Account Controls" title="Delete Account Request" copy="Users can request account deletion. Admins review requests to preserve legally required marketplace records." />
+        <section className="split-layout">
+          <form className="form-panel" onSubmit={requestDeletion}>
+            <h3>Request account deletion</h3>
+            <p className="privacy-note">Deleting an account may remove profile access, but completed orders, dispute records, payment references, and seller legal records may be retained where required.</p>
+            <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Optional reason for deletion" />
+            <FormMessage error={message.error} success={message.success} />
+            <button disabled={working}>{working ? "Submitting..." : "Request Account Deletion"}</button>
+          </form>
+          <aside className="summary-panel"><ShieldCheck size={34} /><h3>What happens next?</h3><p>Admins review the request, confirm identity where needed, and process deletion according to legal and marketplace safety requirements.</p></aside>
+        </section>
+      </>
+    );
+  }
+
+  const content: Record<string, { title: string; kicker: string; copy: string; bullets: string[] }> = {
+    terms: {
+      kicker: "Legal",
+      title: "Terms and Conditions",
+      copy: "These marketplace terms explain acceptable use, seller responsibilities, buyer conduct, moderation, and test-mode checkout limitations.",
+      bullets: ["Use MarketHub lawfully", "Do not upload prohibited content", "Payments are not live until secure backend verification is completed", "Admins may moderate unsafe listings"]
+    },
+    privacy: {
+      kicker: "Privacy",
+      title: "Privacy Policy",
+      copy: "MarketHub collects account, seller, product, order, message, and report data to operate a safe marketplace.",
+      bullets: ["We use data to provide accounts and marketplace features", "Verification documents are private", "Users can request account deletion", "Do not share sensitive credentials in messages"]
+    },
+    about: {
+      kicker: "About",
+      title: "About MarketHub",
+      copy: "MarketHub is being built as a Ghana/Africa multi-vendor marketplace for retail shoppers, wholesale buyers, and approved local sellers.",
+      bullets: ["Retail and wholesale discovery", "Approved seller uploads", "Buyer reporting and moderation", "Ghana-focused delivery and mobile commerce roadmap"]
+    },
+    help: {
+      kicker: "Support",
+      title: "Help Center",
+      copy: "Find account, seller, product, and safety help for MarketHub.",
+      bullets: ["Create an account", "Apply to become a seller", "Report unsafe products", "Contact support for account deletion or safety concerns"]
+    },
+    contact: {
+      kicker: "Contact",
+      title: "Contact MarketHub",
+      copy: "Use this page as the support contact placeholder for Google Play, App Store, and marketplace users.",
+      bullets: ["Support email: support@markethub.example", "Website: https://market-app-like-alibaba.vercel.app", "Response target: 2-3 business days", "Emergency safety reports should use product or seller report buttons"]
+    }
+  };
+  const current = content[page] ?? content.about;
+  return (
+    <>
+      <PageIntro kicker={current.kicker} title={current.title} copy={current.copy} />
+      <section className="policy-panel">
+        {current.bullets.map((bullet) => <p key={bullet}><BadgeCheck size={18} /> {bullet}</p>)}
+      </section>
+    </>
+  );
+}
+
+function StoresPage({ stores, currentUser }: { stores: StoreItem[]; currentUser: AuthUser | null }) {
+  const [activeReportStore, setActiveReportStore] = useState("");
+  const [reportForm, setReportForm] = useState({ reason: "Scam or fraud", description: "" });
+  const [message, setMessage] = useState({ error: "", success: "" });
+  const [working, setWorking] = useState(false);
+  const submitSellerReport = async (event: FormEvent, store: StoreItem) => {
+    event.preventDefault();
+    if (!store.vendorUserId) {
+      setMessage({ error: "This store cannot be reported yet because it is missing marketplace records.", success: "" });
+      return;
+    }
+    setWorking(true);
+    try {
+      await createSellerReport({
+        sellerUserId: store.vendorUserId,
+        reporterUserId: currentUser?.id,
+        reason: reportForm.reason,
+        description: reportForm.description.trim()
+      });
+      setActiveReportStore("");
+      setReportForm({ reason: "Scam or fraud", description: "" });
+      setMessage({ error: "", success: "Thank you. This seller report has been sent to admin moderation." });
+    } catch (error) {
+      setMessage({ error: error instanceof Error ? error.message : "Could not submit seller report.", success: "" });
+    } finally {
+      setWorking(false);
+    }
+  };
   return (
     <>
       <PageIntro
         kicker="Vendors"
         title="Top Stores"
-        copy="Discover verified vendors with strong ratings, clear locations, custom storefronts, and product catalogs."
+        copy="Discover verified vendors with strong ratings, clear locations, custom storefronts, and product catalogues."
         actions={<button className="ghost-button">Most popular</button>}
       />
       {stores.length === 0 ? (
@@ -1564,6 +2401,7 @@ function StoresPage({ stores }: { stores: StoreItem[] }) {
           copy="Verified stores will appear here."
         />
       ) : null}
+      <FormMessage error={message.error} success={message.success} />
       <section className="store-grid">
         {stores.map((store) => (
           <article className="store-card" key={store.name}>
@@ -1578,6 +2416,16 @@ function StoresPage({ stores }: { stores: StoreItem[] }) {
             </span>
             <strong>{store.products.toLocaleString()} products</strong>
             <button className="primary-mini">Visit Store</button>
+            <button className="ghost-button" onClick={() => setActiveReportStore(activeReportStore === store.name ? "" : store.name)}>Report Seller</button>
+            {activeReportStore === store.name ? (
+              <form className="report-form" onSubmit={(event) => void submitSellerReport(event, store)}>
+                <select value={reportForm.reason} onChange={(event) => setReportForm((current) => ({ ...current, reason: event.target.value }))}>
+                  {reportReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+                </select>
+                <textarea value={reportForm.description} onChange={(event) => setReportForm((current) => ({ ...current, description: event.target.value }))} placeholder="Describe the seller issue..." maxLength={700} />
+                <button disabled={working}>{working ? "Submitting..." : "Submit Seller Report"}</button>
+              </form>
+            ) : null}
           </article>
         ))}
       </section>
@@ -2212,7 +3060,7 @@ function ConversationWorkspace({
                   setMessageText(event.target.value);
                   setMessage({ error: "", success: "" });
                 }}
-                placeholder="Write a safe plain-text reply..."
+                placeholder="Write a safe plain text reply..."
                 maxLength={800}
               />
               <button disabled={isSending}>{isSending ? "Sending..." : "Send"}</button>
@@ -2493,7 +3341,7 @@ function VendorSalesChart({ lines }: { lines: Array<{ item: OrderItem }> }) {
           />
         ))}
       </div>
-      <p className="panel-empty">Real delivered order values after commission tracking.</p>
+      <p className="panel-empty">Real delivered order values will appear after commission tracking is connected.</p>
     </article>
   );
 }
@@ -2567,6 +3415,7 @@ function VendorOrderRow({
 }
 
 function AdminDashboard({
+  adminUser,
   users,
   setUsers,
   products,
@@ -2575,8 +3424,14 @@ function AdminDashboard({
   payments,
   payoutRequests,
   vendorApplications,
-  setVendorApplications
+  setVendorApplications,
+  productReports,
+  setProductReports,
+  sellerReports,
+  setSellerReports,
+  accountDeletionRequests
 }: {
+  adminUser: AuthUser | null;
   users: AuthUser[];
   setUsers: React.Dispatch<React.SetStateAction<AuthUser[]>>;
   products: Product[];
@@ -2586,6 +3441,11 @@ function AdminDashboard({
   payoutRequests: PayoutRequest[];
   vendorApplications: VendorApplication[];
   setVendorApplications: React.Dispatch<React.SetStateAction<VendorApplication[]>>;
+  productReports: ProductReport[];
+  setProductReports: React.Dispatch<React.SetStateAction<ProductReport[]>>;
+  sellerReports: SellerReportRecord[];
+  setSellerReports: React.Dispatch<React.SetStateAction<SellerReportRecord[]>>;
+  accountDeletionRequests: AccountDeletionRequestRecord[];
 }) {
   type AdminSection =
     | "Overview"
@@ -2599,6 +3459,8 @@ function AdminDashboard({
     | "Payouts"
     | "Disputes"
     | "Reports"
+    | "App Store Readiness"
+    | "Finance Settings"
     | "Platform Settings";
 
   const adminSections: AdminSection[] = [
@@ -2613,6 +3475,8 @@ function AdminDashboard({
     "Payouts",
     "Disputes",
     "Reports",
+    "App Store Readiness",
+    "Finance Settings",
     "Platform Settings"
   ];
   const vendors = users.filter((user) => user.role === "VENDOR");
@@ -2626,7 +3490,10 @@ function AdminDashboard({
     .reduce((sum, request) => sum + request.amount, 0);
   const ordersToday = orders.filter((order) => isToday(order.createdAt)).length;
   const publishedProducts = products.filter((product) => product.status === "Published");
-  const reportedProducts = products.filter((product) => product.status === "Suspended");
+  const reportedProducts = products.filter((product) => product.status === "Suspended" || product.status === "Removed");
+  const pendingProductReports = productReports.filter((report) => report.status === "PENDING");
+  const pendingSellerReports = sellerReports.filter((report) => report.status === "PENDING");
+  const pendingDeletionRequests = accountDeletionRequests.filter((request) => request.status === "PENDING");
   const [activeSection, setActiveSection] = useState<AdminSection>("Overview");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -2638,6 +3505,120 @@ function AdminDashboard({
     serviceFeeEnabled: PLATFORM_SERVICE_FEE_ENABLED ? "Enabled" : "Disabled",
     marketplaceStatus: "Open"
   });
+  const [financeSetting, setFinanceSetting] = useState<PlatformSettingRow | null>(null);
+  const [settlementAccount, setSettlementAccount] = useState<SettlementAccountRow | null>(null);
+  const [financeMessage, setFinanceMessage] = useState({ error: "", success: "" });
+  const [settlementForm, setSettlementForm] = useState({
+    accountHolderName: "",
+    bankName: "",
+    bankCode: "",
+    accountNumber: ""
+  });
+
+  useEffect(() => {
+    if (!supabase || adminUser?.role !== "ADMIN") return;
+    const client = supabase;
+    const loadFinanceSettings = async () => {
+      const [{ data: setting }, { data: account }] = await Promise.all([
+        client.from("platform_settings").select("*").limit(1).maybeSingle<PlatformSettingRow>(),
+        client.from("platform_settlement_accounts").select("*").eq("is_active", true).limit(1).maybeSingle<SettlementAccountRow>()
+      ]);
+      if (setting) {
+        setFinanceSetting(setting);
+        setSettings((current) => ({ ...current, commissionRate: String(setting.commission_rate) }));
+      }
+      if (account) setSettlementAccount(account);
+    };
+    void loadFinanceSettings();
+  }, [adminUser?.id, adminUser?.role]);
+
+  const saveTestSettlementAccount = async (event: FormEvent) => {
+    event.preventDefault();
+    setFinanceMessage({ error: "", success: "" });
+    if (!adminUser || adminUser.role !== "ADMIN") {
+      setFinanceMessage({ error: "Only an authorised administrator can update Finance Settings.", success: "" });
+      return;
+    }
+    if (!settlementForm.accountHolderName.trim() || !settlementForm.bankName.trim() || !settlementForm.bankCode.trim()) {
+      setFinanceMessage({ error: "Account holder name, bank name, and bank code are required.", success: "" });
+      return;
+    }
+    const digits = settlementForm.accountNumber.replace(/\D/g, "");
+    if (digits.length < 6) {
+      setFinanceMessage({ error: "Enter a valid account number for the masked test configuration.", success: "" });
+      return;
+    }
+    if (!supabase) {
+      setFinanceMessage({ error: "Finance database tables are not connected yet.", success: "" });
+      return;
+    }
+    const masked = `${"*".repeat(Math.max(6, digits.length - 4))}${digits.slice(-4)}`;
+    const { data, error } = await supabase
+      .from("platform_settlement_accounts")
+      .insert({
+        account_holder_name: settlementForm.accountHolderName.trim(),
+        bank_name: settlementForm.bankName.trim(),
+        bank_code: settlementForm.bankCode.trim(),
+        account_number_masked: masked,
+        currency: "GHS",
+        verification_status: "UNVERIFIED",
+        is_active: false,
+        created_by: adminUser.id
+      })
+      .select("*")
+      .single<SettlementAccountRow>();
+    if (error || !data) {
+      setFinanceMessage({ error: error?.message ?? "Could not save the masked test configuration.", success: "" });
+      return;
+    }
+    await supabase.from("admin_audit_logs").insert({
+      admin_user_id: adminUser.id,
+      action: "CREATE_TEST_SETTLEMENT_ACCOUNT",
+      entity_type: "platform_settlement_accounts",
+      entity_id: data.id,
+      metadata: { bank_name: data.bank_name, bank_code: data.bank_code, account_number_masked: data.account_number_masked }
+    });
+    setSettlementAccount(data);
+    setSettlementForm((current) => ({ ...current, accountNumber: "" }));
+    setFinanceMessage({ error: "", success: "Masked test configuration saved. Verification and real settlement remain inactive." });
+  };
+  const saveFinanceSettings = async () => {
+    const rate = Number(settings.commissionRate);
+    if (!adminUser || adminUser.role !== "ADMIN" || !supabase) {
+      setFinanceMessage({ error: "Finance settings require a connected database and authorised administrator.", success: "" });
+      return;
+    }
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+      setFinanceMessage({ error: "Enter a commission rate between 0 and 100.", success: "" });
+      return;
+    }
+    const settingId = financeSetting?.id ?? "00000000-0000-0000-0000-000000000001";
+    const { data, error } = await supabase
+      .from("platform_settings")
+      .upsert({
+        id: settingId,
+        commission_rate: rate,
+        currency: "GHS",
+        payments_enabled: false,
+        payment_mode: "TEST",
+        updated_by: adminUser.id
+      })
+      .select("*")
+      .single<PlatformSettingRow>();
+    if (error || !data) {
+      setFinanceMessage({ error: error?.message ?? "Could not update Finance Settings.", success: "" });
+      return;
+    }
+    await supabase.from("admin_audit_logs").insert({
+      admin_user_id: adminUser.id,
+      action: "UPDATE_PLATFORM_FINANCE_SETTINGS",
+      entity_type: "platform_settings",
+      entity_id: data.id,
+      metadata: { commission_rate: data.commission_rate, currency: data.currency, payment_mode: data.payment_mode }
+    });
+    setFinanceSetting(data);
+    setFinanceMessage({ error: "", success: "Finance Settings saved in TEST MODE." });
+  };
 
   const resetTableState = (section: AdminSection) => {
     setActiveSection(section);
@@ -2652,8 +3633,35 @@ function AdminDashboard({
       currentUsers.map((user) => (user.id === vendorId ? { ...user, vendorStatus: status } : user))
     );
   };
-  const reviewApplication = (application: VendorApplication, status: "APPROVED" | "REJECTED") => {
+  const reviewApplication = async (application: VendorApplication, status: "APPROVED" | "REJECTED") => {
     if (!window.confirm(`Are you sure you want to ${status.toLowerCase()} ${application.businessName}?`)) return;
+    if (!supabase || !adminUser) return;
+    const { error: applicationError } = await supabase
+      .from("vendor_applications")
+      .update({ status, reviewed_by: adminUser.id, reviewed_at: new Date().toISOString() })
+      .eq("id", application.id);
+    if (applicationError) {
+      window.alert(applicationError.message);
+      return;
+    }
+    if (status === "APPROVED") {
+      const { error: profileError } = await supabase.from("profiles").update({ role: "VENDOR" }).eq("id", application.userId);
+      if (profileError) {
+        window.alert(profileError.message);
+        return;
+      }
+      const { error: storeError } = await supabase.from("stores").upsert({
+        vendor_user_id: application.userId,
+        name: application.businessName,
+        description: application.description,
+        logo_url: application.logoPreview || null,
+        status: "ACTIVE"
+      }, { onConflict: "vendor_user_id" });
+      if (storeError) {
+        window.alert(storeError.message);
+        return;
+      }
+    }
     setVendorApplications((currentApplications) =>
       currentApplications.map((currentApplication) =>
         currentApplication.id === application.id ? { ...currentApplication, status } : currentApplication
@@ -2682,21 +3690,55 @@ function AdminDashboard({
       })
     );
   };
-  const updateProductStatus = (productId: number, status: ProductStatus) => {
+  const updateProductStatus = async (productId: number, status: ProductStatus) => {
     const product = products.find((item) => item.id === productId);
     if (!product) return;
     if (!window.confirm(`Are you sure you want to set ${product.name} to ${status}?`)) return;
+    if (product.databaseId && ["Published", "Suspended", "Removed"].includes(status)) {
+      try {
+        await setAdminProductStatus(product.databaseId, status === "Published" ? "PUBLISHED" : status === "Suspended" ? "SUSPENDED" : "REMOVED");
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Could not update product moderation status.");
+        return;
+      }
+    }
     setProducts((currentProducts) =>
       currentProducts.map((item) =>
         item.id === productId ? { ...item, status, badge: status === "Published" ? "Live" : status } : item
       )
     );
   };
-  const removeProduct = (productId: number) => {
+  const removeProduct = async (productId: number) => {
     const product = products.find((item) => item.id === productId);
     if (!product) return;
-    if (!window.confirm(`Remove ${product.name}? This action cannot be undone in the current session.`)) return;
-    setProducts((currentProducts) => currentProducts.filter((item) => item.id !== productId));
+    if (!window.confirm(`Remove ${product.name} from public marketplace visibility?`)) return;
+    if (product.databaseId) {
+      try {
+        await setAdminProductStatus(product.databaseId, "REMOVED");
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Could not remove product.");
+        return;
+      }
+    }
+    setProducts((currentProducts) => currentProducts.map((item) => item.id === productId ? { ...item, status: "Removed", badge: "Removed" } : item));
+  };
+  const reviewProductReport = async (report: ProductReport, status: "REVIEWED" | "ACTION_TAKEN" | "DISMISSED") => {
+    if (!adminUser) return;
+    try {
+      await updateProductReportStatus(report.id, status, adminUser.id);
+      setProductReports((currentReports) => currentReports.map((item) => item.id === report.id ? { ...item, status } : item));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Could not update report.");
+    }
+  };
+  const reviewSellerReport = async (report: SellerReportRecord, status: "REVIEWED" | "ACTION_TAKEN" | "DISMISSED") => {
+    if (!adminUser) return;
+    try {
+      await updateSellerReportStatus(report.id, status, adminUser.id);
+      setSellerReports((currentReports) => currentReports.map((item) => item.id === report.id ? { ...item, status } : item));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Could not update seller report.");
+    }
   };
   const addCategory = (event: FormEvent) => {
     event.preventDefault();
@@ -2780,24 +3822,44 @@ function AdminDashboard({
         <Metric label="Total customers" value={String(customers.length)} delta="Registered buyers" />
         <Metric label="Published products" value={String(publishedProducts.length)} delta={`${products.length} total products`} />
         <Metric label="Orders today" value={String(ordersToday)} delta={`${orders.length} total orders`} />
-        <Metric label="Total revenue" value={currency.format(totalRevenue)} delta="Successful payments" />
-        <Metric label="Platform commission earned" value={currency.format(platformCommissionEarned)} delta={`${Math.round(PLATFORM_COMMISSION_RATE * 100)}% vendor commission`} />
-        <Metric label="Pending payouts" value={currency.format(pendingPayoutTotal)} delta={`${payoutRequests.filter((request) => request.status === "PENDING").length} requests`} />
+        <Metric label="Verified Sales" value="Not connected" delta="Payment persistence required" />
+        <Metric label="Platform Commission" value="Not connected" delta="Backend verification required" />
+        <Metric label="Pending Vendor Earnings" value="Not connected" delta="Payout persistence required" />
       </section>
       {activeSection === "Overview" ? (
-        <section className="dashboard-grid">
-          <ChartPanel title="Platform Sales Analytics" empty={successfulPayments.length === 0} />
-          <StatusPanel empty={orders.length === 0} />
-          <ListPanel
-            title="Admin Work Queue"
-            items={[
-              ...pendingApplications.map((application) => `Review vendor: ${application.businessName}`),
-              ...reportedProducts.map((product) => `Review product: ${product.name}`),
-              ...payoutRequests.filter((request) => request.status === "PENDING").map((request) => `Review payout: ${request.vendor}`)
-            ]}
-            emptyCopy="There are no approvals, reports, payout reviews, or disputes yet."
-          />
-        </section>
+        <>
+          <section className="finance-mode-notice">
+            <ShieldCheck size={26} />
+            <div>
+              <strong>Payment Settlement: TEST MODE</strong>
+              <span>Payment settlement is in test mode. No real funds are transferred until live payment integration is completed.</span>
+            </div>
+          </section>
+          <section className="stat-grid">
+            <Metric label="Commission Rate" value={`${financeSetting?.commission_rate ?? 3}%`} delta={financeSetting ? "Database setting" : "Default test setting"} />
+            <Metric label="Total Verified Sales" value="Not connected" delta="Requires persisted verified payments" />
+            <Metric label="Platform Commission Earned" value="Not connected" delta="Requires backend commission records" />
+            <Metric label="Pending Vendor Earnings" value="Not connected" delta="Requires persisted order earnings" />
+            <Metric label="Settlement Account Status" value={settlementAccount?.verification_status ?? "Not Configured"} delta={settlementAccount?.account_number_masked ?? "No active verified account"} />
+            <Metric label="Payment Mode" value={financeSetting?.payment_mode ?? "TEST"} delta="Real settlement disabled" />
+          </section>
+          <PlatformProgress settlementAccount={settlementAccount} financeSetting={financeSetting} />
+          <section className="dashboard-grid">
+            <ChartPanel title="Platform Sales Analytics" empty />
+            <StatusPanel empty={orders.length === 0} />
+            <ListPanel
+              title="Admin Work Queue"
+              items={[
+                ...pendingApplications.map((application) => `Review vendor: ${application.businessName}`),
+                ...reportedProducts.map((product) => `Moderate product: ${product.name}`),
+                ...pendingProductReports.map((report) => `Product report: ${report.reason}`),
+                ...pendingSellerReports.map((report) => `Seller report: ${report.reason}`),
+                ...pendingDeletionRequests.map((request) => `Deletion request: ${request.reason || request.userId}`)
+              ]}
+              emptyCopy="There are no approvals, reports, or disputes yet."
+            />
+          </section>
+        </>
       ) : null}
       {activeSection === "Vendor Applications" ? (
         <AdminPanel title="Vendor Applications" search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} statuses={["All", "PENDING", "APPROVED", "REJECTED"]}>
@@ -2851,14 +3913,14 @@ function AdminDashboard({
         </AdminPanel>
       ) : null}
       {activeSection === "Products" ? (
-        <AdminPanel title="Products" search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} statuses={["All", "Draft", "Published", "Out of Stock", "Suspended"]}>
+        <AdminPanel title="Products" search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} statuses={["All", "Draft", "Published", "Out of Stock", "Suspended", "Removed"]}>
           {paginate(filteredProducts, pageNumber).map((product) => (
             <div className="table-row admin-table-row" key={product.id}>
               <span>{product.status}</span>
               <strong>{product.name}</strong>
               <span>{product.vendor}</span>
               <span>{product.category}</span>
-              <button onClick={() => updateProductStatus(product.id, "Published")}>Approve</button>
+              <button onClick={() => updateProductStatus(product.id, "Published")}>{product.status === "Published" ? "Live" : "Restore"}</button>
               <button onClick={() => updateProductStatus(product.id, "Suspended")}>Suspend</button>
               <button onClick={() => removeProduct(product.id)}>Remove</button>
             </div>
@@ -2926,17 +3988,48 @@ function AdminDashboard({
       ) : null}
       {activeSection === "Disputes" ? (
         <section className="table-panel">
-          <h3>Disputes and Reported Products</h3>
-          {reportedProducts.length === 0 ? <EmptyState icon={<ShieldCheck size={38} />} title="No active disputes" copy="Reported products and buyer/vendor disputes will appear here." /> : null}
-          {reportedProducts.map((product) => (
-            <div className="table-row admin-table-row" key={product.id}>
-              <span>Reported</span>
-              <strong>{product.name}</strong>
-              <span>{product.vendor}</span>
-              <button onClick={() => updateProductStatus(product.id, "Published")}>Clear Report</button>
-              <button onClick={() => removeProduct(product.id)}>Remove Product</button>
+          <h3>Disputes, Reports and Account Requests</h3>
+          {productReports.length === 0 && sellerReports.length === 0 && accountDeletionRequests.length === 0 ? <EmptyState icon={<ShieldCheck size={38} />} title="No active disputes" copy="Buyer reports, seller reports and account deletion requests will appear here." /> : null}
+          {productReports.map((report) => {
+            const product = products.find((item) => item.databaseId === report.productId);
+            return (
+            <div className="table-row admin-table-row" key={report.id}>
+              <span>Product: {report.status}</span>
+              <strong>{product?.name ?? "Reported product"}</strong>
+              <span>{report.reason}</span>
+              <span>{report.createdAt}</span>
+              <button onClick={() => product ? void updateProductStatus(product.id, "Suspended") : undefined}>Suspend Product</button>
+              <button onClick={() => product ? void removeProduct(product.id) : undefined}>Remove Product</button>
+              <button onClick={() => void reviewProductReport(report, "DISMISSED")}>Dismiss</button>
             </div>
-          ))}
+          );})}
+          {sellerReports.map((report) => {
+            const seller = users.find((user) => user.id === report.sellerUserId);
+            return (
+              <div className="table-row admin-table-row" key={report.id}>
+                <span>Seller: {report.status}</span>
+                <strong>{seller?.storeName || seller?.name || "Reported seller"}</strong>
+                <span>{report.reason}</span>
+                <span>{report.createdAt}</span>
+                {seller ? <button onClick={() => updateVendorStatus(seller.id, "SUSPENDED")}>Suspend Seller</button> : null}
+                <button onClick={() => void reviewSellerReport(report, "REVIEWED")}>Mark Reviewed</button>
+                <button onClick={() => void reviewSellerReport(report, "DISMISSED")}>Dismiss</button>
+              </div>
+            );
+          })}
+          {accountDeletionRequests.map((request) => {
+            const account = users.find((user) => user.id === request.userId);
+            return (
+              <div className="table-row admin-table-row" key={request.id}>
+                <span>Deletion: {request.status}</span>
+                <strong>{account?.name || "Account deletion request"}</strong>
+                <span>{request.reason || "No reason provided"}</span>
+                <span>{request.createdAt}</span>
+                <button disabled>Review Identity</button>
+                <button disabled>Manual Processing</button>
+              </div>
+            );
+          })}
         </section>
       ) : null}
       {activeSection === "Reports" ? (
@@ -2945,6 +4038,55 @@ function AdminDashboard({
           <ListPanel title="Marketplace Report" items={[`Vendors: ${vendors.length}`, `Customers: ${customers.length}`, `Products: ${products.length}`, `Orders: ${orders.length}`]} />
           <ListPanel title="Risk Report" items={[`Suspended vendors: ${vendors.filter((vendor) => vendor.vendorStatus === "SUSPENDED").length}`, `Suspended products: ${reportedProducts.length}`, `Pending applications: ${pendingApplications.length}`]} />
         </section>
+      ) : null}
+      {activeSection === "App Store Readiness" ? (
+        <AppStoreReadinessPanel />
+      ) : null}
+      {activeSection === "Finance Settings" ? (
+        <>
+          <section className="finance-mode-notice">
+            <ShieldCheck size={26} />
+            <div>
+              <strong>Payment settlement is in test mode</strong>
+              <span>No real funds are transferred until secure provider verification, backend webhooks, and persisted payments are completed.</span>
+            </div>
+          </section>
+          <section className="finance-settings-grid">
+            <form className="form-panel" onSubmit={(event) => { event.preventDefault(); void saveFinanceSettings(); }}>
+              <h3>Finance Settings</h3>
+              <label>Platform Commission</label>
+              <input value={settings.commissionRate} onChange={(event) => setSettings((current) => ({ ...current, commissionRate: event.target.value }))} type="number" min="0" max="100" step="0.01" />
+              <label>Currency</label>
+              <input value="GHS" disabled />
+              <label>Payment Mode</label>
+              <input value="TEST" disabled />
+              <FormMessage error={financeMessage.error} success={financeMessage.success} />
+              <button>Save Finance Settings</button>
+            </form>
+            <form className="form-panel" onSubmit={saveTestSettlementAccount}>
+              <h3>Admin Settlement Account</h3>
+              <input value={settlementForm.accountHolderName} onChange={(event) => setSettlementForm((current) => ({ ...current, accountHolderName: event.target.value }))} placeholder="Account holder name" />
+              <input value={settlementForm.bankName} onChange={(event) => setSettlementForm((current) => ({ ...current, bankName: event.target.value }))} placeholder="Bank name" />
+              <input value={settlementForm.bankCode} onChange={(event) => setSettlementForm((current) => ({ ...current, bankCode: event.target.value }))} placeholder="Provider-supported bank code" />
+              <input value={settlementForm.accountNumber} onChange={(event) => setSettlementForm((current) => ({ ...current, accountNumber: event.target.value }))} placeholder="Account number, masked before storage" inputMode="numeric" />
+              <input value="GHS" disabled />
+              <button>Save Masked Test Configuration</button>
+              <button className="ghost-button" type="button" disabled>Verify Bank Account - Backend Required</button>
+              <p className="privacy-note">The full account number is not stored. Provider recipient/subaccount verification requires a future secure backend.</p>
+            </form>
+          </section>
+          <section className="summary-panel finance-summary">
+            <h3>Current Finance Configuration</h3>
+            <SummaryLine label="Platform Commission" value={`${financeSetting?.commission_rate ?? 3}%`} />
+            <SummaryLine label="Settlement Account" value={settlementAccount?.account_number_masked ?? "Not Configured"} />
+            <SummaryLine label="Verification Status" value={settlementAccount?.verification_status ?? "UNVERIFIED"} />
+            <SummaryLine label="Payment Provider Status" value="Not connected" />
+            <SummaryLine label="Currency" value={financeSetting?.currency ?? "GHS"} />
+            <SummaryLine label="Payment Mode" value={financeSetting?.payment_mode ?? "TEST"} />
+            <SummaryLine label="Last Updated" value={financeSetting ? new Date(financeSetting.updated_at).toLocaleString() : "Not connected"} />
+            <SummaryLine label="Updated By Administrator" value={adminUser?.email ?? "Not available"} strong />
+          </section>
+        </>
       ) : null}
       {activeSection === "Platform Settings" ? (
         <section className="split-layout">
@@ -2970,6 +4112,72 @@ function AdminDashboard({
         </section>
       ) : null}
     </>
+  );
+}
+
+function PlatformProgress({ settlementAccount, financeSetting }: { settlementAccount: SettlementAccountRow | null; financeSetting: PlatformSettingRow | null }) {
+  const modules = [
+    ["Authentication", supabase ? "Connected" : "Pending"],
+    ["Database persistence", supabase ? "Partially connected" : "Pending"],
+    ["Vendor onboarding", supabase ? "Connected" : "Pending"],
+    ["Products", supabase ? "Connected" : "Temporary State"],
+    ["Orders", "Temporary State"],
+    ["Payments", financeSetting?.payment_mode ?? "TEST Mode"],
+    ["Platform commission", financeSetting ? "Configured in TEST Mode" : "Pending"],
+    ["Settlement account", settlementAccount?.verification_status === "VERIFIED" ? "Verified" : "Not Configured"],
+    ["Payouts", "Pending"],
+    ["Buyer Protection", "Pending"]
+  ];
+  return (
+    <section className="platform-progress">
+      <div className="section-header"><h3>Platform Progress</h3><span>Honest production-readiness status</span></div>
+      <div className="progress-grid">
+        {modules.map(([label, status]) => (
+          <article key={label}>
+            <strong>{label}</strong>
+            <span className={status.includes("Connected") || status === "Verified" ? "ready" : "pending"}>{status}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AppStoreReadinessPanel() {
+  const items = [
+    ["Mobile responsive design", "Complete", "Public pages and seller upload use responsive layouts."],
+    ["Capacitor Android setup", "In Progress", "Documented, not installed yet."],
+    ["Capacitor iOS setup", "In Progress", "Documented, requires macOS and Xcode."],
+    ["App icon", "In Progress", "SVG placeholder exists; final store icon still needed."],
+    ["Splash screen", "In Progress", "Manifest theme and placeholder assets exist; native splash needs Capacitor."],
+    ["Privacy Policy", "Complete", "Public privacy page exists."],
+    ["Terms", "Complete", "Public terms page exists."],
+    ["Delete Account", "Complete", "Deletion request page and database table exist."],
+    ["Product reporting", "Complete", "Product report form and database table exist."],
+    ["Content moderation", "In Progress", "Admin can suspend/remove; deeper automation still needed."],
+    ["Seller policy", "Complete", "Public seller policy page exists."],
+    ["Prohibited items page", "Complete", "Public prohibited-items page exists."],
+    ["Data Safety notes", "Complete", "Documentation exists in docs."],
+    ["Store Listing Draft", "Complete", "Store listing draft exists in docs."],
+    ["Android build ready", "Missing", "Capacitor must be installed and Android platform generated."],
+    ["iOS build ready", "Missing", "Capacitor iOS platform must be generated on macOS with Xcode."],
+    ["Screenshots", "Missing", "Final phone screenshots still need to be captured."],
+    ["Payment status", "In Progress", "Checkout remains test mode; live payment is not active."]
+  ];
+  return (
+    <section className="table-panel">
+      <h3>App Store Readiness</h3>
+      <p className="privacy-note">This checklist tracks Google Play and Apple App Store readiness without falsely marking unfinished production systems as complete.</p>
+      <div className="play-readiness-grid">
+        {items.map(([label, status, detail]) => (
+          <article className={`play-card ${status.toLowerCase().replaceAll(" ", "-")}`} key={label}>
+            <span>{status}</span>
+            <strong>{label}</strong>
+            <p>{detail}</p>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -3091,14 +4299,32 @@ function ProductsPage({
     condition: "New",
     deliveryOptions: [],
     status: "Draft",
-    images: []
+    images: [],
+    wholesalePrice: "",
+    minimumOrderQuantity: ""
   });
   const [message, setMessage] = useState({ error: "", success: "" });
   const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const vendorName = user?.storeName || user?.name || "Vendor";
   const vendorProducts = products.filter((product) => product.vendor === vendorName);
+
+  useEffect(() => {
+    if (!user || user.role !== "VENDOR") return;
+    loadSellerProducts(user.id)
+      .then((catalog) => {
+        const sellerProducts = catalog.map(mapCatalogProduct);
+        setProducts((current) => [
+          ...current.filter((product) => product.vendor !== vendorName),
+          ...sellerProducts
+        ]);
+      })
+      .catch((error) => setMessage({ error: error instanceof Error ? error.message : "Could not load seller products.", success: "" }));
+  }, [user?.id, vendorName]);
 
   const updateDraft = (field: keyof ProductDraft, value: string) => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -3119,6 +4345,12 @@ function ProductsPage({
       setMessage({ error: "Upload between 1 and 6 product images.", success: "" });
       return;
     }
+    const invalidFile = selectedFiles.find((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024);
+    if (invalidFile) {
+      setMessage({ error: "Images must be JPG, PNG, or WEBP and no larger than 5 MB each.", success: "" });
+      return;
+    }
+    setImageFiles(selectedFiles);
     setDraft((current) => ({ ...current, images: selectedFiles.map((file) => URL.createObjectURL(file)) }));
     setMessage({ error: "", success: "" });
   };
@@ -3136,12 +4368,17 @@ function ProductsPage({
       condition: "New",
       deliveryOptions: [],
       status: "Draft",
-      images: []
+      images: [],
+      wholesalePrice: "",
+      minimumOrderQuantity: ""
     });
     setEditingProductId(null);
+    setImageFiles([]);
+    setVideoFile(null);
+    setUploadProgress(0);
   };
 
-  const uploadProduct = (event: FormEvent) => {
+  const uploadProduct = async (event: FormEvent) => {
     event.preventDefault();
     setIsSaving(true);
     const validationError = validateProductDraft(draft);
@@ -3150,36 +4387,61 @@ function ProductsPage({
       setIsSaving(false);
       return;
     }
+    const prohibitedError = getProhibitedContentWarning(`${draft.name} ${draft.description} ${draft.category} ${draft.subcategory} ${draft.brand}`);
+    if (prohibitedError) {
+      setMessage({ error: prohibitedError, success: "" });
+      setIsSaving(false);
+      return;
+    }
 
-    const nextProduct: Product = {
-      id: editingProductId ?? Date.now(),
-      name: draft.name.trim(),
-      description: draft.description.trim(),
-      category: draft.category,
-      subcategory: draft.subcategory.trim(),
-      brand: draft.brand.trim(),
-      vendor: vendorName,
-      price: Number(draft.price),
-      discountPrice: draft.discountPrice ? Number(draft.discountPrice) : undefined,
-      rating: 0,
-      stock: Number(draft.stock),
-      sku: draft.sku.trim(),
-      condition: draft.condition,
-      images: draft.images,
-      deliveryOptions: draft.deliveryOptions,
-      status: Number(draft.stock) === 0 ? "Out of Stock" : draft.status,
-      badge: draft.status === "Published" ? "Live" : draft.status,
-      image: draft.images[0]
-    };
-
-    setProducts((currentProducts) =>
-      editingProductId
-        ? currentProducts.map((product) => (product.id === editingProductId ? nextProduct : product))
-        : [...currentProducts, nextProduct]
-    );
-    resetDraft();
-    setMessage({ error: "", success: editingProductId ? "Product updated." : "Product uploaded." });
-    setIsSaving(false);
+    if (!user || user.role !== "VENDOR" || user.vendorStatus !== "APPROVED") {
+      setMessage({ error: "Only approved sellers can upload products.", success: "" });
+      setIsSaving(false);
+      return;
+    }
+    const existing = editingProductId ? products.find((product) => product.id === editingProductId) : undefined;
+    if (!existing && imageFiles.length === 0) {
+      setMessage({ error: "Upload at least one product image.", success: "" });
+      setIsSaving(false);
+      return;
+    }
+    setUploadProgress(20);
+    try {
+      const saved = await saveSellerProduct({
+        databaseId: existing?.databaseId,
+        sellerUserId: user.id,
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        category: draft.category,
+        subcategory: draft.subcategory.trim(),
+        brand: draft.brand.trim(),
+        sku: draft.sku.trim(),
+        condition: draft.condition,
+        retailPrice: Number(draft.price),
+        discountPrice: draft.discountPrice ? Number(draft.discountPrice) : undefined,
+        wholesalePrice: draft.wholesalePrice ? Number(draft.wholesalePrice) : undefined,
+        minimumOrderQuantity: draft.minimumOrderQuantity ? Number(draft.minimumOrderQuantity) : undefined,
+        quantity: Number(draft.stock),
+        deliveryOptions: draft.deliveryOptions,
+        status: draft.status === "Published" ? "Published" : "Draft",
+        imageFiles,
+        videoFile: videoFile ?? undefined
+      });
+      setUploadProgress(100);
+      const nextProduct = mapCatalogProduct(saved);
+      setProducts((currentProducts) =>
+        existing
+          ? currentProducts.map((product) => product.id === existing.id ? nextProduct : product)
+          : [nextProduct, ...currentProducts]
+      );
+      resetDraft();
+      setMessage({ error: "", success: existing ? "Product updated and saved." : "Product uploaded and saved." });
+    } catch (error) {
+      setMessage({ error: error instanceof Error ? error.message : "Could not save product.", success: "" });
+      setUploadProgress(0);
+    } finally {
+      setIsSaving(false);
+    }
   };
   const editProduct = (product: Product) => {
     setEditingProductId(product.id);
@@ -3196,23 +4458,37 @@ function ProductsPage({
       condition: product.condition,
       deliveryOptions: product.deliveryOptions,
       status: product.status,
-      images: product.images
+      images: product.images,
+      wholesalePrice: product.wholesalePrice ? String(product.wholesalePrice) : "",
+      minimumOrderQuantity: product.minimumOrderQuantity ? String(product.minimumOrderQuantity) : ""
     });
     setMessage({ error: "", success: "Editing product." });
   };
-  const deleteProduct = (productId: number) => {
-    setProducts((currentProducts) => currentProducts.filter((product) => product.id !== productId));
-    if (editingProductId === productId) resetDraft();
-    setMessage({ error: "", success: "Product deleted." });
+  const deleteProduct = async (productId: number) => {
+    const product = products.find((item) => item.id === productId);
+    if (!product?.databaseId || !window.confirm("Delete this product and its uploaded media?")) return;
+    try {
+      await deleteSellerProduct(product.databaseId, product.media);
+      setProducts((currentProducts) => currentProducts.filter((item) => item.id !== productId));
+      if (editingProductId === productId) resetDraft();
+      setMessage({ error: "", success: "Product deleted." });
+    } catch (error) {
+      setMessage({ error: error instanceof Error ? error.message : "Could not delete product.", success: "" });
+    }
   };
-  const updateProductStatus = (productId: number, status: ProductStatus) => {
-    setProducts((currentProducts) =>
-      currentProducts.map((product) =>
-        product.id === productId
-          ? { ...product, status, badge: status === "Published" ? "Live" : status }
-          : product
-      )
-    );
+  const updateProductStatus = async (productId: number, status: ProductStatus) => {
+    const product = products.find((item) => item.id === productId);
+    if (!product?.databaseId || !["Draft", "Published"].includes(status)) return;
+    try {
+      await setSellerProductStatus(product.databaseId, status === "Published" ? "PUBLISHED" : "DRAFT");
+      setProducts((currentProducts) =>
+        currentProducts.map((item) =>
+          item.id === productId ? { ...item, status, badge: status === "Published" ? "Live" : status } : item
+        )
+      );
+    } catch (error) {
+      setMessage({ error: error instanceof Error ? error.message : "Could not update product status.", success: "" });
+    }
   };
 
   return (
@@ -3235,6 +4511,8 @@ function ProductsPage({
           <input value={draft.brand} onChange={(event) => updateDraft("brand", event.target.value)} placeholder="Brand" />
           <input value={draft.price} onChange={(event) => updateDraft("price", event.target.value)} placeholder="Price" inputMode="decimal" />
           <input value={draft.discountPrice} onChange={(event) => updateDraft("discountPrice", event.target.value)} placeholder="Discount price, optional" inputMode="decimal" />
+          <input value={draft.wholesalePrice} onChange={(event) => updateDraft("wholesalePrice", event.target.value)} placeholder="Wholesale price, optional" inputMode="decimal" />
+          <input value={draft.minimumOrderQuantity} onChange={(event) => updateDraft("minimumOrderQuantity", event.target.value)} placeholder="Minimum wholesale order quantity, optional" inputMode="numeric" />
           <input value={draft.stock} onChange={(event) => updateDraft("stock", event.target.value)} placeholder="Stock quantity" inputMode="numeric" />
           <select value={draft.condition} onChange={(event) => updateDraft("condition", event.target.value as ProductDraft["condition"])}>
             <option value="New">New</option>
@@ -3242,9 +4520,7 @@ function ProductsPage({
           </select>
           <select value={draft.status} onChange={(event) => updateDraft("status", event.target.value as ProductStatus)}>
             <option value="Draft">Draft</option>
-            <option value="Published">Published</option>
-            <option value="Out of Stock">Out of Stock</option>
-            <option value="Suspended">Suspended</option>
+            <option value="Published">Publish Now</option>
           </select>
           <div className="checkbox-grid">
             {["Door delivery", "Pickup point", "Vendor pickup", "Express delivery"].map((option) => (
@@ -3261,11 +4537,37 @@ function ProductsPage({
           </label>
           {draft.images.length ? (
             <div className="image-preview-grid">
-              {draft.images.map((image) => <img src={image} alt="" key={image} />)}
+              {draft.images.map((image, index) => (
+                <div className="media-preview" key={image}>
+                  <img src={image} alt={`Product preview ${index + 1}`} />
+                  {imageFiles.length ? <button type="button" onClick={() => {
+                    const nextFiles = imageFiles.filter((_, fileIndex) => fileIndex !== index);
+                    setImageFiles(nextFiles);
+                    setDraft((current) => ({ ...current, images: current.images.filter((_, imageIndex) => imageIndex !== index) }));
+                  }}>Remove</button> : null}
+                </div>
+              ))}
             </div>
           ) : null}
+          <label className="file-input">
+            <span>Optional product video, MP4 or WEBM up to 50 MB</span>
+            <input type="file" accept="video/mp4,video/webm" onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              if (!["video/mp4", "video/webm"].includes(file.type) || file.size > 50 * 1024 * 1024) {
+                setMessage({ error: "Video must be MP4 or WEBM and no larger than 50 MB.", success: "" });
+                return;
+              }
+              setVideoFile(file);
+              setMessage({ error: "", success: "" });
+            }} />
+            <small>{videoFile?.name || "No video selected"}</small>
+          </label>
+          {videoFile ? <video className="video-preview" controls src={URL.createObjectURL(videoFile)} /> : null}
+          {uploadProgress > 0 ? <progress value={uploadProgress} max="100">{uploadProgress}%</progress> : null}
+          <p className="privacy-note">By publishing this product, you confirm it follows MarketHub's Seller Policy and Prohibited Items Policy.</p>
           <FormMessage error={message.error} success={message.success} />
-          <button disabled={isSaving}>{isSaving ? "Saving..." : editingProductId ? "Save Product" : "Upload Product"}</button>
+          <button disabled={isSaving}>{isSaving ? "Saving..." : editingProductId ? "Save Product" : draft.status === "Published" ? "Publish Product Now" : "Save Draft"}</button>
           {editingProductId ? <button type="button" className="ghost-button" onClick={resetDraft}>Cancel Edit</button> : null}
         </form>
         <aside className="summary-panel">
@@ -3281,7 +4583,7 @@ function ProductsPage({
           <EmptyState
             icon={<Package size={38} />}
             title="No uploaded products"
-            copy="Product uploads will appear here."
+            copy="You have not listed any products yet. Upload your first product with clear pictures and an optional video to start reaching buyers."
           />
         ) : null}
         {vendorProducts.map((product) => (
@@ -3311,12 +4613,25 @@ function validateProductDraft(draft: ProductDraft) {
   if (draft.discountPrice && Number(draft.discountPrice) >= Number(draft.price)) {
     return "Discount price must be lower than product price.";
   }
+  if (draft.wholesalePrice && Number(draft.wholesalePrice) <= 0) return "Enter a valid wholesale price.";
+  if (draft.minimumOrderQuantity && (!Number.isInteger(Number(draft.minimumOrderQuantity)) || Number(draft.minimumOrderQuantity) < 2)) {
+    return "Minimum wholesale order quantity must be at least 2.";
+  }
+  if (draft.wholesalePrice && !draft.minimumOrderQuantity) return "Add a minimum order quantity for wholesale pricing.";
+  if (draft.minimumOrderQuantity && !draft.wholesalePrice) return "Add a wholesale price for the minimum order quantity.";
   if (!draft.stock.trim() || Number(draft.stock) < 0 || !Number.isInteger(Number(draft.stock))) {
     return "Enter a valid stock quantity.";
   }
   if (draft.deliveryOptions.length === 0) return "Select at least one delivery option.";
   if (draft.images.length < 1 || draft.images.length > 6) return "Upload between 1 and 6 product images.";
   return "";
+}
+
+function getProhibitedContentWarning(text: string) {
+  const normalized = text.toLowerCase();
+  const matchedTerm = prohibitedTerms.find((term) => normalized.includes(term));
+  if (!matchedTerm) return "";
+  return `This listing appears to include prohibited marketplace content (${matchedTerm}). Review the Prohibited Items policy before publishing.`;
 }
 
 function PaymentsPage({
@@ -3348,7 +4663,7 @@ function PaymentsPage({
         <PageIntro
           kicker="Demo Data"
           title="Payments and Payouts"
-          copy="Payment, commission, and payout records on this page are temporary frontend test data. No real finance operations are active."
+          copy="Payment, commission, and payout information on this page are temporary frontend test data. No real financial operations are active."
         />
         <section className="stat-grid">
           <Metric label="Test payment records" value={String(payments.length)} delta="Temporary session data" />
@@ -3506,16 +4821,16 @@ function AiPage() {
 }
 
 function ProfilePage({
-  setUsers,
   user,
   setCurrentUser,
   setPage,
   onAuthenticated,
   authPrompt,
   vendorApplications,
-  setVendorApplications
+  setVendorApplications,
+  initialMode,
+  setVerificationEmail
 }: {
-  setUsers: React.Dispatch<React.SetStateAction<AuthUser[]>>;
   user: AuthUser | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>;
   setPage: (page: PageId) => void;
@@ -3523,17 +4838,23 @@ function ProfilePage({
   authPrompt: string;
   vendorApplications: VendorApplication[];
   setVendorApplications: React.Dispatch<React.SetStateAction<VendorApplication[]>>;
+  initialMode: "login" | "signup";
+  setVerificationEmail?: React.Dispatch<React.SetStateAction<string>>;
 }) {
-  const [mode, setMode] = useState<"login" | "signup">("signup");
+  const [mode, setMode] = useState<"login" | "signup">(initialMode);
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
   const [authWorking, setAuthWorking] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [form, setForm] = useState({
     name: "",
     email: "",
     password: "",
+    confirmPassword: "",
     phone: "",
-    address: ""
+    address: "",
+    acceptedTerms: false
   });
   const [vendorForm, setVendorForm] = useState({
     businessName: "",
@@ -3548,6 +4869,12 @@ function ProfilePage({
     verificationDocumentName: ""
   });
   const [vendorMessage, setVendorMessage] = useState({ error: "", success: "" });
+  const [vendorLogoFile, setVendorLogoFile] = useState<File | null>(null);
+  const [verificationFile, setVerificationFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   const updateField = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -3574,7 +4901,7 @@ function ProfilePage({
       });
 
       if (error) {
-        setAuthError(error.message);
+        setAuthError(getFriendlyAuthError(error.message));
         setAuthWorking(false);
         return;
       }
@@ -3599,6 +4926,7 @@ function ProfilePage({
       email: form.email.trim().toLowerCase(),
       password: form.password,
       options: {
+        emailRedirectTo: `${window.location.origin}/verify-email`,
         data: {
           full_name: form.name.trim()
         }
@@ -3606,7 +4934,7 @@ function ProfilePage({
     });
 
     if (error) {
-      setAuthError(error.message);
+      setAuthError(getFriendlyAuthError(error.message));
       setAuthWorking(false);
       return;
     }
@@ -3622,71 +4950,16 @@ function ProfilePage({
       await onAuthenticated(data.session.user);
     }
 
-    setAuthSuccess(data.session ? "Customer account created securely." : "Customer account created. Check your email to confirm your account, then log in.");
-    setAuthWorking(false);
-  };
-
-  const updateProfile = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!user) return;
-    setAuthError("");
-    setAuthSuccess("");
-    setAuthWorking(true);
-    if (!supabase) {
-      setAuthError(supabaseConfigurationMessage);
+    if (!data.session) {
+      const email = form.email.trim().toLowerCase();
+      window.localStorage.setItem("markethubPendingVerificationEmail", email);
+      setVerificationEmail?.(email);
       setAuthWorking(false);
-      return;
-    }
-    const client = supabase;
-
-    if (!form.name.trim()) {
-      setAuthError("Name is required.");
-      setAuthWorking(false);
+      setPage("verify-email");
       return;
     }
 
-    if (!isValidEmail(form.email)) {
-      setAuthError("Enter a valid email address.");
-      setAuthWorking(false);
-      return;
-    }
-
-    const nextEmail = form.email.trim().toLowerCase();
-    if (nextEmail !== user.email) {
-      const { error: emailError } = await client.auth.updateUser({ email: nextEmail });
-      if (emailError) {
-        setAuthError(emailError.message);
-        setAuthWorking(false);
-        return;
-      }
-    }
-
-    const { error } = await client
-      .from("profiles")
-      .update({
-        full_name: form.name.trim(),
-        email: nextEmail,
-        phone: form.phone.trim() || null
-      })
-      .eq("id", user.id);
-
-    if (error) {
-      setAuthError(error.message);
-      setAuthWorking(false);
-      return;
-    }
-
-    const updatedUser: AuthUser = {
-      ...user,
-      name: form.name.trim(),
-      email: nextEmail,
-      phone: form.phone.trim()
-    };
-
-    setUsers((currentUsers) => currentUsers.map((existingUser) => (existingUser.id === user.id ? updatedUser : existingUser)));
-    setCurrentUser(updatedUser);
-    setAuthSuccess("Profile updated.");
-    setAuthError("");
+    setAuthSuccess("Customer account created securely.");
     setAuthWorking(false);
   };
 
@@ -3699,6 +4972,7 @@ function ProfilePage({
     if (!file) return;
     setVendorMessage({ error: "", success: "" });
     if (field === "logo") {
+      setVendorLogoFile(file);
       setVendorForm((current) => ({
         ...current,
         logoName: file.name,
@@ -3706,6 +4980,7 @@ function ProfilePage({
       }));
       return;
     }
+    setVerificationFile(file);
     setVendorForm((current) => ({
       ...current,
       verificationDocumentName: file.name
@@ -3739,6 +5014,19 @@ function ProfilePage({
       return;
     }
 
+    if (!vendorLogoFile || !verificationFile) {
+      setVendorMessage({ error: "Select a store logo and a private verification document.", success: "" });
+      return;
+    }
+
+    let assets: Awaited<ReturnType<typeof uploadSellerApplicationAssets>>;
+    try {
+      assets = await uploadSellerApplicationAssets(user.id, vendorLogoFile, verificationFile);
+    } catch (error) {
+      setVendorMessage({ error: error instanceof Error ? error.message : "Could not securely upload seller documents.", success: "" });
+      return;
+    }
+
     const { data, error } = await client
       .from("vendor_applications")
       .insert({
@@ -3750,6 +5038,8 @@ function ProfilePage({
         address: vendorForm.address.trim(),
         description: vendorForm.description.trim(),
         category: vendorForm.category,
+        logo_path: assets.logoPath,
+        verification_document_path: assets.verificationDocumentPath,
         status: "PENDING"
       })
       .select("*")
@@ -3771,8 +5061,10 @@ function ProfilePage({
         name: user.name,
         email: user.email,
         password: "",
+        confirmPassword: "",
         phone: user.phone ?? "",
-        address: user.address ?? ""
+        address: user.address ?? "",
+        acceptedTerms: true
       });
     }
   }, [user]);
@@ -3780,29 +5072,57 @@ function ProfilePage({
   if (user) {
     return (
       <>
-        <PageIntro kicker="Account" title={`${roleLabels[user.role]} Profile`} copy="" />
+        <PageIntro kicker="Account" title="My Account" copy="Manage your MarketHub activity and seller application from one secure place." />
         <section className="profile-layout">
-          <aside>
+          <aside className="account-side-nav">
+            <div className="account-side-profile">
+              <span className="account-avatar-small large">{user.name.slice(0, 2).toUpperCase()}</span>
+              <div>
+                <strong>{user.name}</strong>
+                <small>{roleLabels[user.role]} account</small>
+              </div>
+            </div>
             <button className="active">
-              <User size={16} />
-              Account
+              <LayoutDashboard size={16} />
+              Account Center
             </button>
+            <button onClick={() => setPage("profile")}><User size={16} /> Profile</button>
+            {user.role === "CUSTOMER" ? <button onClick={() => setPage("track")}><PackageCheck size={16} /> My Orders</button> : null}
+            {user.role === "CUSTOMER" ? <button onClick={() => setPage("wishlist")}><Heart size={16} /> Wishlist</button> : null}
             {user.role === "CUSTOMER" ? <button onClick={() => setPage("cart")}><ShoppingCart size={16} /> Cart</button> : null}
-            {user.role === "CUSTOMER" ? <button onClick={() => document.getElementById("vendor-application")?.scrollIntoView({ behavior: "smooth" })}><Store size={16} /> Become a Vendor</button> : null}
-            {user.role === "VENDOR" ? <button onClick={() => setPage("vendor")}><LayoutDashboard size={16} /> Vendor Dashboard</button> : null}
+            {user.role === "CUSTOMER" ? <button onClick={() => document.getElementById("vendor-application")?.scrollIntoView({ behavior: "smooth" })}><Store size={16} /> Become a Seller</button> : null}
+            {user.role === "VENDOR" ? <button onClick={() => setPage("vendor")}><LayoutDashboard size={16} /> Seller Dashboard</button> : null}
             {user.role === "ADMIN" ? <button onClick={() => setPage("admin")}><ShieldCheck size={16} /> Admin Dashboard</button> : null}
           </aside>
           <div className="stack-panel">
-            <form className="form-panel" onSubmit={updateProfile}>
-              <h3>Profile Information</h3>
-              <AccountStatus user={user} />
-              <input value={form.name} onChange={(event) => updateField("name", event.target.value)} placeholder="Full name" />
-              <input value={form.email} onChange={(event) => updateField("email", event.target.value)} placeholder="Email address" />
-              <input value={form.phone} onChange={(event) => updateField("phone", event.target.value)} placeholder="Phone number" />
-              <input value={form.address} onChange={(event) => updateField("address", event.target.value)} placeholder="Address" />
-              <FormMessage error={authError} success={authSuccess} />
-              <button disabled={authWorking}>{authWorking ? "Saving..." : "Update Profile"}</button>
-            </form>
+            <section className="form-panel account-overview">
+              <div className="account-overview-hero">
+                <div>
+                  <p className="eyebrow">Welcome back</p>
+                  <h3>{user.name}</h3>
+                  <AccountStatus user={user} />
+                </div>
+                <button onClick={() => setPage("profile")}>Edit Profile</button>
+              </div>
+              <div className="account-quick-grid">
+                <article>
+                  <small>Email</small>
+                  <strong>{user.email}</strong>
+                </article>
+                <article>
+                  <small>Phone</small>
+                  <strong>{user.phone || "Add phone number"}</strong>
+                </article>
+                <article>
+                  <small>Role</small>
+                  <strong>{roleLabels[user.role]}</strong>
+                </article>
+                <article>
+                  <small>Delivery address</small>
+                  <strong>{user.address || "Add delivery address"}</strong>
+                </article>
+              </div>
+            </section>
             {user.role === "CUSTOMER" ? (
               <VendorApplicationForm
                 form={vendorForm}
@@ -3824,13 +5144,13 @@ function ProfilePage({
       <PageIntro
         kicker="Account"
         title={mode === "signup" ? "Create Account" : "Log In"}
-        copy="Users manage personal information, addresses, payment methods, order history, wallet, preferences, and security settings."
+        copy={mode === "signup" ? "Join MarketHub as a customer and start shopping trusted products across Ghana." : "Welcome back. Log in securely to continue shopping or manage your seller workspace."}
       />
       <section className="auth-layout">
         <form className="form-panel" onSubmit={submitAuth}>
           <div className="auth-tabs">
-            <button className={mode === "signup" ? "active" : ""} type="button" onClick={() => setMode("signup")}>Sign up</button>
-            <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Log in</button>
+            <button className={mode === "signup" ? "active" : ""} type="button" onClick={() => setPage("signup")}>Sign up</button>
+            <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setPage("login")}>Log in</button>
           </div>
           <FormMessage error={authPrompt || (!supabase ? supabaseConfigurationMessage : "")} success="" />
           {mode === "signup" ? (
@@ -3839,15 +5159,31 @@ function ProfilePage({
             </>
           ) : null}
           <input value={form.email} onChange={(event) => updateField("email", event.target.value)} placeholder="Email address" />
-          <input value={form.password} onChange={(event) => updateField("password", event.target.value)} placeholder="Password" type="password" />
+          <label className="password-field">
+            <input value={form.password} onChange={(event) => updateField("password", event.target.value)} placeholder="Password" type={showPassword ? "text" : "password"} />
+            <button type="button" onClick={() => setShowPassword((visible) => !visible)} title={showPassword ? "Hide password" : "Show password"}>
+              {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </label>
           {mode === "signup" ? (
             <>
+              <label className="password-field">
+                <input value={form.confirmPassword} onChange={(event) => updateField("confirmPassword", event.target.value)} placeholder="Confirm password" type={showConfirmPassword ? "text" : "password"} />
+                <button type="button" onClick={() => setShowConfirmPassword((visible) => !visible)} title={showConfirmPassword ? "Hide password" : "Show password"}>
+                  {showConfirmPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </label>
               <input value={form.phone} onChange={(event) => updateField("phone", event.target.value)} placeholder="Phone number" />
-              <input value={form.address} onChange={(event) => updateField("address", event.target.value)} placeholder="Address" />
+              <label className="terms-checkbox">
+                <input type="checkbox" checked={form.acceptedTerms} onChange={(event) => setForm((current) => ({ ...current, acceptedTerms: event.target.checked }))} />
+                <span>I agree to the Terms and Privacy Policy.</span>
+              </label>
             </>
           ) : null}
           <FormMessage error={authError} success={authSuccess} />
           <button disabled={authWorking}>{authWorking ? "Please wait..." : mode === "signup" ? "Create Customer Account" : "Log In"}</button>
+          {mode === "login" ? <button type="button" className="ghost-button" onClick={() => setPage("forgot-password")}>Forgot Password?</button> : null}
+          {mode === "login" ? <button type="button" className="ghost-button" onClick={() => setPage("verify-email")}>Enter Verification Code</button> : null}
         </form>
         <div className="auth-card">
           <ShieldCheck size={28} />
@@ -3859,14 +5195,298 @@ function ProfilePage({
   );
 }
 
+function VerifyEmailCodePage({
+  initialEmail,
+  setVerificationEmail,
+  setPage,
+  onAuthenticated
+}: {
+  initialEmail: string;
+  setVerificationEmail: React.Dispatch<React.SetStateAction<string>>;
+  setPage: (page: PageId) => void;
+  onAuthenticated: (authUser: SupabaseAuthUser) => Promise<AuthUser>;
+}) {
+  const [email, setEmail] = useState(initialEmail);
+  const [code, setCode] = useState("");
+  const [message, setMessage] = useState({ error: "", success: "" });
+  const [working, setWorking] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    setEmail(initialEmail);
+  }, [initialEmail]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setTimeout(() => setCooldown((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const updateStoredEmail = (value: string) => {
+    setEmail(value);
+    setVerificationEmail(value);
+    if (value.trim()) {
+      window.localStorage.setItem("markethubPendingVerificationEmail", value.trim().toLowerCase());
+    }
+    setMessage({ error: "", success: "" });
+  };
+
+  const verifyCode = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!supabase) {
+      setMessage({ error: supabaseConfigurationMessage, success: "" });
+      return;
+    }
+    if (!isValidEmail(normalizedEmail)) {
+      setMessage({ error: "Enter the email address you used to create your MarketHub account.", success: "" });
+      return;
+    }
+    const cleanedCode = code.replace(/\D/g, "");
+    if (cleanedCode.length < 6) {
+      setMessage({ error: "Enter the 6-digit verification code from your email.", success: "" });
+      return;
+    }
+    setWorking(true);
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: normalizedEmail,
+      token: cleanedCode,
+      type: "signup"
+    });
+    if (error) {
+      setMessage({ error: "The code is invalid or has expired. Please check your email or request a new code.", success: "" });
+      setWorking(false);
+      return;
+    }
+    window.localStorage.removeItem("markethubPendingVerificationEmail");
+    setVerificationEmail("");
+    setMessage({ error: "", success: "Email verified successfully. Welcome to MarketHub." });
+    if (data.user) {
+      await onAuthenticated(data.user);
+    } else {
+      setPage("login");
+    }
+    setWorking(false);
+  };
+
+  const resendCode = async () => {
+    if (!supabase || cooldown > 0) return;
+    if (!isValidEmail(normalizedEmail)) {
+      setMessage({ error: "Enter your email address before requesting a new code.", success: "" });
+      return;
+    }
+    setWorking(true);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: normalizedEmail,
+      options: {
+        emailRedirectTo: `${window.location.origin}/verify-email`
+      }
+    });
+    setWorking(false);
+    if (error) {
+      setMessage({ error: getFriendlyAuthError(error.message), success: "" });
+      return;
+    }
+    setCooldown(60);
+    setMessage({ error: "", success: "A new verification code has been sent to your email." });
+  };
+
+  return (
+    <>
+      <PageIntro
+        kicker="Email Verification"
+        title="Verify your email"
+        copy="Enter the 6-digit code we sent to your email to activate your MarketHub account."
+      />
+      <section className="auth-layout compact-auth">
+        <form className="form-panel verification-panel" onSubmit={verifyCode}>
+          <div className="verification-hero">
+            <span className="brand-mark">M</span>
+            <div>
+              <h3>Check your inbox</h3>
+              <p>We sent a 6-digit verification code to your email address.</p>
+            </div>
+          </div>
+          <label>Email address<input type="email" value={email} onChange={(event) => updateStoredEmail(event.target.value)} placeholder="you@example.com" /></label>
+          <label>Verification code<input className="pin-input" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="000000" /></label>
+          <FormMessage error={message.error} success={message.success} />
+          <button disabled={working}>{working ? "Verifying..." : "Verify Email"}</button>
+          <button type="button" className="ghost-button" disabled={working || cooldown > 0} onClick={resendCode}>
+            {cooldown > 0 ? `You can request a new code in ${cooldown}s` : "Resend code"}
+          </button>
+          <button type="button" className="ghost-button" onClick={() => setPage("signup")}>Change email or create account again</button>
+          <button type="button" className="ghost-button" onClick={() => setPage("login")}>Back to Log In</button>
+        </form>
+      </section>
+    </>
+  );
+}
+
+function UserProfilePage({
+  user,
+  setUsers,
+  setCurrentUser,
+  setPage
+}: {
+  user: AuthUser | null;
+  setUsers: React.Dispatch<React.SetStateAction<AuthUser[]>>;
+  setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>;
+  setPage: (page: PageId) => void;
+}) {
+  const [form, setForm] = useState({
+    name: user?.name ?? "",
+    email: user?.email ?? "",
+    phone: user?.phone ?? "",
+    address: user?.address ?? ""
+  });
+  const [message, setMessage] = useState({ error: "", success: "" });
+  const [saving, setSaving] = useState(false);
+
+  if (!user) return <AccessDeniedPage requiredRole="a logged-in account" setPage={setPage} />;
+
+  const updateProfile = async (event: FormEvent) => {
+    event.preventDefault();
+    setMessage({ error: "", success: "" });
+    if (!supabase) {
+      setMessage({ error: supabaseConfigurationMessage, success: "" });
+      return;
+    }
+    if (!form.name.trim() || !isValidEmail(form.email)) {
+      setMessage({ error: "Enter a full name and valid email address.", success: "" });
+      return;
+    }
+    setSaving(true);
+    const nextEmail = form.email.trim().toLowerCase();
+    if (nextEmail !== user.email) {
+      const { error: emailError } = await supabase.auth.updateUser({ email: nextEmail });
+      if (emailError) {
+        setMessage({ error: emailError.message, success: "" });
+        setSaving(false);
+        return;
+      }
+    }
+    const { error } = await supabase
+      .from("profiles")
+      .update({ full_name: form.name.trim(), email: nextEmail, phone: form.phone.trim() || null, address: form.address.trim() || null })
+      .eq("id", user.id);
+    if (error) {
+      setMessage({ error: error.message, success: "" });
+      setSaving(false);
+      return;
+    }
+    const updated = { ...user, name: form.name.trim(), email: nextEmail, phone: form.phone.trim(), address: form.address.trim() };
+    setUsers((current) => current.map((item) => item.id === user.id ? updated : item));
+    setCurrentUser(updated);
+    setMessage({ error: "", success: "Profile already updated." });
+    setSaving(false);
+  };
+
+  return (
+    <>
+      <PageIntro kicker="Profile" title={user.name} copy="Keep your personal contact details accurate for orders and seller communication." />
+      <section className="profile-page-grid">
+        <aside className="profile-identity-card">
+          <span className="profile-avatar">{user.name.slice(0, 2).toUpperCase()}</span>
+          <h3>{user.name}</h3>
+          <p>{user.email}</p>
+          <AccountStatus user={user} />
+          <button className="ghost-button" onClick={() => setPage("account")}>Open My Account</button>
+        </aside>
+        <form className="form-panel" onSubmit={updateProfile}>
+          <h3>Profile Details</h3>
+          <label>Full name<input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></label>
+          <label>Email address<input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} /></label>
+          <label>Phone number<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} /></label>
+          <label>Delivery address<input value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} /></label>
+          <FormMessage error={message.error} success={message.success} />
+          <button disabled={saving}>{saving ? "Saving..." : "Save Profile"}</button>
+        </form>
+      </section>
+    </>
+  );
+}
+
+function PasswordRecoveryPage({ mode, setPage }: { mode: "request" | "reset"; setPage: (page: PageId) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState({ error: "", success: "" });
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!supabase) {
+      setMessage({ error: supabaseConfigurationMessage, success: "" });
+      return;
+    }
+    setWorking(true);
+    setMessage({ error: "", success: "" });
+    if (mode === "request") {
+      if (!isValidEmail(email)) {
+        setMessage({ error: "Enter a valid email address.", success: "" });
+        setWorking(false);
+        return;
+      }
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+        redirectTo: `${window.location.origin}/reset-password`
+      });
+      setMessage(error ? { error: error.message, success: "" } : { error: "", success: "Password reset instructions have been sent to your email." });
+      setWorking(false);
+      return;
+    }
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
+      setMessage({ error: "Use at least 8 characters with uppercase, lowercase, and a number.", success: "" });
+      setWorking(false);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setMessage({ error: "Passwords do not match.", success: "" });
+      setWorking(false);
+      return;
+    }
+    const { error } = await supabase.auth.updateUser({ password });
+    setMessage(error ? { error: error.message, success: "" } : { error: "", success: "Password updated. You can now continue to your account." });
+    setWorking(false);
+  };
+
+  return (
+    <>
+      <PageIntro kicker="Account Security" title={mode === "request" ? "Forgot Password" : "Set a New Password"} copy="MarketHub uses Supabase Auth to securely manage password recovery." />
+      <section className="auth-layout compact-auth">
+        <form className="form-panel" onSubmit={submit}>
+          {mode === "request" ? (
+            <label>Email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+          ) : (
+            <>
+              <label>New password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+              <label>Confirm new password<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+            </>
+          )}
+          <FormMessage error={message.error} success={message.success} />
+          <button disabled={working}>{working ? "Please wait..." : mode === "request" ? "Send Reset Email" : "Update Password"}</button>
+          <button type="button" className="ghost-button" onClick={() => setPage("login")}>Back to Log In</button>
+        </form>
+      </section>
+    </>
+  );
+}
+
 function validateSignup(form: {
   name: string;
   email: string;
   password: string;
+  confirmPassword: string;
+  acceptedTerms: boolean;
 }) {
   if (!form.name.trim()) return "Full name is required.";
   if (!isValidEmail(form.email)) return "Enter a valid email address.";
   if (form.password.length < 8) return "Password must be at least 8 characters.";
+  if (!/[A-Z]/.test(form.password) || !/[a-z]/.test(form.password) || !/\d/.test(form.password)) {
+    return "Password must include uppercase, lowercase, and a number.";
+  }
+  if (form.password !== form.confirmPassword) return "Passwords do not match.";
+  if (!form.acceptedTerms) return "Agree to the Terms and Privacy Policy to create an account.";
   return "";
 }
 
@@ -3923,7 +5543,7 @@ function VendorApplicationForm({
 
   return (
     <form id="vendor-application" className="form-panel" onSubmit={onSubmit}>
-      <h3>Become a Vendor</h3>
+          <h3>Become a Seller</h3>
       {latestApplication ? (
         <p className={`account-status ${latestApplication.status.toLowerCase()}`}>
           Latest application: {latestApplication.status}
@@ -3958,6 +5578,26 @@ function VendorApplicationForm({
 
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function getFriendlyAuthError(message: string) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("email not confirmed") || normalized.includes("not confirmed")) {
+    return "Please verify your email first. Check your inbox for the verification code.";
+  }
+  if (normalized.includes("invalid login credentials")) {
+    return "The email or password is incorrect. Please check your details and try again.";
+  }
+  if (normalized.includes("already registered") || normalized.includes("already been registered")) {
+    return "An account already exists for this email. Log in or use password recovery.";
+  }
+  if (normalized.includes("rate limit") || normalized.includes("too many")) {
+    return "Too many attempts. Please wait a moment before trying again.";
+  }
+  if (normalized.includes("expired") || normalized.includes("invalid token")) {
+    return "The code is invalid or has expired. Please request a new code.";
+  }
+  return "We could not complete that account action. Please try again.";
 }
 
 function FormMessage({ error, success }: { error: string; success: string }) {
@@ -4007,7 +5647,7 @@ function AccessDeniedPage({ requiredRole, setPage }: { requiredRole: string; set
         <ShieldCheck size={42} />
         <h3>Sign in with {requiredRole}</h3>
         <p>This page is protected by role-based authorization.</p>
-        <button className="primary-mini empty-action" onClick={() => setPage("profile")}>Go to Account</button>
+        <button className="primary-mini empty-action" onClick={() => setPage("login")}>Go to Log In</button>
       </section>
     </>
   );
@@ -4092,3 +5732,4 @@ function EmptyState({
 }
 
 export { App };
+

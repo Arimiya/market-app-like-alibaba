@@ -2,7 +2,7 @@
 
 ## Product Summary
 
-MarketHub is a multi-vendor e-commerce marketplace for Africa, starting with a Ghana-focused launch and expanding toward a pan-African platform. It supports customers, vendors, and admins through a secure marketplace experience with product catalogs, mobile money payments, order management, vendor dashboards, admin controls, reviews, notifications, and future AI features.
+MarketHub is a multi-vendor e-commerce marketplace for Africa, starting with a Ghana-focused launch and expanding toward a pan-African platform. It supports customers, vendors, and admins through a secure marketplace experience with product catalogues, mobile money payments, order management, vendor dashboards, admin controls, reviews, notifications, and future AI features.
 
 ## Product Vision
 

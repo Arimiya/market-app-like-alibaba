@@ -195,9 +195,7 @@ svg {
 }
 
 .sidebar-callout span {
-  color: #b9cbc5;
-  font-size: 0.88rem;
-  line-height: 1.45;
+  display: none;
 }
 
 .sidebar-callout button {
@@ -257,6 +255,10 @@ svg {
 .hero h2 {
   margin: 0;
   color: var(--ink);
+}
+
+.page-intro-copy {
+  display: none;
 }
 
 .eyebrow {
@@ -1205,6 +1207,88 @@ svg {
   line-height: 1.45;
 }
 
+.finance-mode-notice {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 16px;
+  color: #7a4b00;
+  border: 1px solid #f2cf85;
+  border-radius: 9px;
+  background: #fff7df;
+}
+
+.finance-mode-notice div {
+  display: grid;
+  gap: 4px;
+}
+
+.finance-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.finance-settings-grid label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.finance-summary {
+  margin-top: 18px;
+}
+
+.platform-progress {
+  margin: 22px 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+}
+
+.platform-progress .section-header {
+  margin-top: 0;
+}
+
+.platform-progress .section-header span {
+  color: var(--muted);
+}
+
+.progress-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.progress-grid article {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.progress-grid span {
+  width: max-content;
+  max-width: 100%;
+  padding: 5px 7px;
+  overflow-wrap: anywhere;
+  color: #995f00;
+  font-size: 0.72rem;
+  font-weight: 900;
+  border-radius: 999px;
+  background: #fff1cf;
+}
+
+.progress-grid span.ready {
+  color: #087052;
+  background: #dff8ef;
+}
+
 .confirmation-panel {
   display: grid;
   gap: 16px;
@@ -1292,9 +1376,7 @@ svg {
 }
 
 .auth-card p {
-  margin: 0;
-  color: #c8d8d2;
-  line-height: 1.55;
+  display: none;
 }
 
 .auth-tabs {
@@ -1314,6 +1396,81 @@ svg {
   color: white;
   border-color: var(--coal);
   background: var(--coal);
+}
+
+.terms-checkbox {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.terms-checkbox input {
+  width: auto;
+  margin-top: 3px;
+}
+
+.compact-auth {
+  max-width: 680px;
+  grid-template-columns: 1fr;
+  margin: 0 auto;
+}
+
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.password-field input {
+  min-width: 0;
+  border: 0;
+}
+
+.password-field button {
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  color: var(--muted);
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: #f8fbfa;
+}
+
+.verification-panel {
+  gap: 15px;
+}
+
+.verification-hero {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  color: white;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--coal), #12352d);
+}
+
+.verification-hero h3,
+.verification-hero p {
+  margin: 0;
+}
+
+.verification-hero p {
+  color: #c8d8d2;
+}
+
+.pin-input {
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 950;
+  letter-spacing: 0.42em;
 }
 
 .form-message {
@@ -1404,6 +1561,36 @@ svg {
   object-fit: cover;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.media-preview {
+  position: relative;
+  display: grid;
+  gap: 5px;
+}
+
+.media-preview button {
+  min-height: 30px;
+  padding: 4px 7px;
+  font-size: 0.72rem;
+}
+
+.video-preview,
+.product-video {
+  width: 100%;
+  max-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #07110e;
+}
+
+.product-video {
+  margin-top: 14px;
+}
+
+.form-panel progress {
+  width: 100%;
+  accent-color: var(--mint);
 }
 
 .product-detail-layout {
@@ -1512,6 +1699,113 @@ svg {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 18px;
+}
+
+.profile-page-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.profile-identity-card {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 28px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(160deg, #fffaf0, #e8f8f1);
+}
+
+.profile-identity-card h3,
+.profile-identity-card p {
+  margin: 0;
+}
+
+.profile-avatar {
+  display: grid;
+  width: 76px;
+  height: 76px;
+  place-items: center;
+  color: white;
+  font-size: 1.35rem;
+  font-weight: 950;
+  border-radius: 50%;
+  background: var(--coal);
+  box-shadow: 0 0 0 7px rgba(54, 214, 157, 0.22);
+}
+
+.account-overview {
+  align-content: start;
+}
+
+.account-side-nav {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 16px 36px rgba(28, 45, 41, 0.07);
+}
+
+.account-side-profile {
+  margin-bottom: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fff7e6, #effcf6);
+}
+
+.account-overview-hero {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.account-overview-hero h3 {
+  margin: 0 0 6px;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+}
+
+.account-overview-hero button,
+.account-quick-grid article {
+  border: 1px solid var(--line);
+}
+
+.account-overview-hero button {
+  width: auto;
+  min-width: 130px;
+  color: var(--coal);
+  background: #f3fbf7;
+}
+
+.account-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.account-quick-grid article {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: #fbfdfb;
+}
+
+.account-quick-grid small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.account-quick-grid strong {
+  overflow-wrap: anywhere;
 }
 
 .conversation-layout aside,
@@ -1899,7 +2193,620 @@ svg {
   overflow-wrap: anywhere;
 }
 
+.marketplace-shell {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, #fffaf0 0, #eef3f4 310px),
+    var(--mist);
+}
+
+.marketplace-shell .content {
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.marketplace-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 8px 28px rgba(18, 32, 29, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.marketplace-header-main {
+  display: grid;
+  grid-template-columns: auto minmax(280px, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 14px 24px;
+}
+
+.marketplace-logo {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--ink);
+  text-align: left;
+  border: 0;
+  background: transparent;
+}
+
+.marketplace-logo span:last-child,
+.delivery-selector span {
+  display: grid;
+}
+
+.marketplace-logo small,
+.delivery-selector small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.marketplace-search {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 46px;
+  padding-left: 14px;
+  border: 2px solid var(--coal);
+  border-radius: 9px;
+  background: white;
+}
+
+.marketplace-search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+}
+
+.marketplace-search button {
+  align-self: stretch;
+  padding: 0 20px;
+  color: white;
+  border: 0;
+  background: var(--coal);
+}
+
+.delivery-selector,
+.account-button,
+.icon-action,
+.text-action,
+.create-account-action,
+.mobile-menu-button {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-height: 42px;
+  color: var(--ink);
+  border: 0;
+  background: transparent;
+}
+
+.marketplace-account-actions {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.marketplace-account-menu {
+  position: relative;
+}
+
+.marketplace-account-menu:focus-within .account-dropdown,
+.marketplace-account-menu:hover .account-dropdown {
+  visibility: visible;
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.account-button {
+  padding: 4px 10px 4px 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.account-button:hover,
+.account-button:focus-visible {
+  border-color: var(--line);
+  background: #f7fbf7;
+}
+
+.account-button small,
+.account-button strong {
+  display: block;
+  max-width: 116px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-button small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.account-avatar-small {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 950;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--coal), var(--mint));
+  box-shadow: 0 0 0 3px rgba(54, 214, 157, 0.16);
+}
+
+.account-avatar-small.large {
+  width: 44px;
+  height: 44px;
+  font-size: 0.9rem;
+}
+
+.account-dropdown {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 12px);
+  right: 0;
+  display: grid;
+  visibility: hidden;
+  min-width: 260px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+  transform: translateY(8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: 0.18s ease;
+}
+
+.account-dropdown::before {
+  position: absolute;
+  top: -8px;
+  right: 26px;
+  width: 14px;
+  height: 14px;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  background: white;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.account-dropdown-head,
+.account-side-profile {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.account-dropdown-head {
+  margin-bottom: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fff7e6, #ecfff7);
+}
+
+.account-dropdown-head strong,
+.account-dropdown-head small,
+.account-side-profile strong,
+.account-side-profile small {
+  display: block;
+}
+
+.account-dropdown-head small,
+.account-side-profile small {
+  color: var(--muted);
+}
+
+.account-dropdown button {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  padding: 10px;
+  color: var(--ink);
+  font-weight: 800;
+  text-align: left;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.account-dropdown button:hover,
+.account-dropdown button:focus-visible {
+  background: #f4faf6;
+}
+
+.icon-action {
+  position: relative;
+  justify-content: center;
+  width: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.text-action,
+.create-account-action {
+  padding: 0 12px;
+  font-weight: 800;
+}
+
+.create-account-action {
+  color: white;
+  border-radius: 8px;
+  background: var(--coal);
+}
+
+.marketplace-nav {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 0 24px 12px;
+}
+
+.marketplace-nav button {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 12px;
+  color: var(--ink);
+  font-weight: 800;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.marketplace-nav button:hover {
+  background: #eff8f4;
+}
+
+.marketplace-nav .sell-link {
+  margin-left: auto;
+  color: #087052;
+}
+
+.marketplace-nav .rfq-link {
+  color: #8b5500;
+  background: #fff3d7;
+}
+
+.mobile-menu-button,
+.marketplace-bottom-nav {
+  display: none;
+}
+
+.hero-copy span {
+  max-width: 630px;
+  color: #d5e5df;
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hero-actions .hero-secondary {
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.wholesale-preview,
+.wholesale-empty,
+.protection-cta {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px 0 28px;
+  padding: 24px;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at right top, rgba(244, 165, 28, 0.24), transparent 34%),
+    linear-gradient(135deg, #10241e, #19362d);
+  color: white;
+  box-shadow: var(--shadow);
+}
+
+.wholesale-preview h3,
+.wholesale-empty h3,
+.protection-cta h3 {
+  margin: 4px 0 8px;
+  font-size: 1.5rem;
+}
+
+.wholesale-preview p,
+.wholesale-empty p {
+  max-width: 720px;
+  color: #c5d7d1;
+}
+
+.wholesale-preview-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.wholesale-grid,
+.protection-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.wholesale-card,
+.protection-grid article {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 10px 26px rgba(18, 32, 29, 0.07);
+}
+
+.wholesale-card > img {
+  width: 100%;
+  height: 190px;
+  object-fit: cover;
+}
+
+.wholesale-card > div,
+.protection-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.supplier-label {
+  width: max-content;
+  padding: 5px 8px;
+  color: #7a4b00;
+  font-size: 0.72rem;
+  font-weight: 900;
+  border-radius: 999px;
+  background: #fff3d7;
+}
+
+.card-actions,
+.product-purchase-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.protection-grid article svg {
+  color: var(--mint);
+}
+
+.rfq-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.7fr);
+  gap: 18px;
+}
+
+.variant-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.variant-group span {
+  width: 100%;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.variant-group button {
+  padding: 7px 10px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: white;
+}
+
+.variant-group button.active {
+  color: white;
+  border-color: var(--coal);
+  background: var(--coal);
+}
+
+.delivery-estimate,
+.seller-card,
+.buyer-protection-card,
+.returns-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f8fbfa;
+}
+
+.delivery-estimate div,
+.seller-card div,
+.buyer-protection-card div,
+.returns-card div {
+  display: grid;
+  gap: 3px;
+}
+
+.delivery-estimate span,
+.seller-card span,
+.buyer-protection-card p,
+.returns-card span {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.seller-card button,
+.buyer-protection-card button {
+  margin-left: auto;
+}
+
+.report-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #fed7aa;
+  border-radius: 9px;
+  background: #fff7ed;
+}
+
+.report-card div {
+  display: grid;
+  gap: 3px;
+}
+
+.report-card span {
+  color: var(--muted);
+}
+
+.report-card button {
+  margin-left: auto;
+}
+
+.report-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.marketplace-footer {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.6fr);
+  gap: 18px;
+  max-width: 1480px;
+  margin: 24px auto 0;
+  padding: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.marketplace-footer p {
+  display: none;
+}
+
+.marketplace-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.marketplace-footer button {
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+}
+
+.policy-grid,
+.play-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.policy-card,
+.policy-panel,
+.play-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 10px 24px rgba(28, 45, 41, 0.06);
+}
+
+.policy-card svg,
+.policy-panel svg {
+  color: var(--mint);
+}
+
+.policy-card strong,
+.play-card strong {
+  display: block;
+  margin: 8px 0;
+}
+
+.policy-card p,
+.policy-panel p,
+.play-card p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.policy-panel p {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.play-card span {
+  display: inline-flex;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  font-weight: 950;
+  border-radius: 999px;
+  background: #fff1cf;
+}
+
+.play-card.complete span {
+  color: #087052;
+  background: #dff8ef;
+}
+
+.play-card.missing span {
+  color: #9f1239;
+  background: #ffe4ec;
+}
+
 @media (max-width: 1180px) {
+  .progress-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .marketplace-header-main {
+    grid-template-columns: auto minmax(220px, 1fr) auto;
+  }
+
+  .delivery-selector {
+    display: none;
+  }
+
+  .account-button span {
+    display: none;
+  }
+
+  .wholesale-grid,
+  .protection-grid,
+  .account-quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .app-shell {
     grid-template-columns: 230px minmax(0, 1fr);
   }
@@ -1944,6 +2851,137 @@ svg {
 }
 
 @media (max-width: 820px) {
+  .profile-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-identity-card {
+    padding: 20px;
+  }
+
+  .video-preview,
+  .product-video {
+    max-height: 260px;
+  }
+  .finance-settings-grid,
+  .progress-grid,
+  .account-quick-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-overview-hero {
+    display: grid;
+  }
+
+  .account-overview-hero button {
+    width: 100%;
+  }
+
+  .marketplace-shell .content {
+    padding: 14px 14px 90px;
+  }
+
+  .marketplace-header {
+    position: sticky;
+  }
+
+  .marketplace-header-main {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .mobile-menu-button {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  .marketplace-logo small,
+  .marketplace-account-actions .text-action,
+  .marketplace-account-actions .create-account-action,
+  .marketplace-account-actions .account-button,
+  .marketplace-account-actions .icon-action {
+    display: none;
+  }
+
+  .marketplace-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-height: 42px;
+  }
+
+  .marketplace-search button {
+    padding: 0 13px;
+  }
+
+  .marketplace-nav {
+    display: none;
+    padding: 8px 12px 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .marketplace-nav.open {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .marketplace-nav button,
+  .marketplace-nav .sell-link {
+    justify-content: flex-start;
+    margin: 0;
+    text-align: left;
+  }
+
+  .marketplace-bottom-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 35;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    padding: 7px 8px max(7px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 -10px 28px rgba(18, 32, 29, 0.1);
+  }
+
+  .marketplace-bottom-nav button {
+    display: grid;
+    gap: 3px;
+    place-items: center;
+    padding: 5px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 900;
+    border: 0;
+    background: transparent;
+  }
+
+  .marketplace-bottom-nav button.active {
+    color: var(--mint);
+  }
+
+  .wholesale-preview,
+  .wholesale-empty,
+  .protection-cta {
+    display: grid;
+  }
+
+  .wholesale-grid,
+  .protection-grid,
+  .rfq-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .wholesale-preview-actions {
+    flex-wrap: wrap;
+  }
+
   .app-shell {
     display: block;
   }
@@ -2053,11 +3091,30 @@ svg {
   .product-grid,
   .category-grid,
   .feature-grid,
+  .policy-grid,
+  .play-readiness-grid,
   .vendor-strip,
   .trust-grid,
   .messages-layout,
-  .profile-layout {
+  .profile-layout,
+  .marketplace-footer {
     grid-template-columns: 1fr;
+  }
+
+  .marketplace-footer {
+    padding: 18px 14px 104px;
+  }
+
+  .marketplace-footer nav {
+    justify-content: flex-start;
+  }
+
+  .report-card {
+    display: grid;
+  }
+
+  .report-card button {
+    margin-left: 0;
   }
 
   .launch-panel {
@@ -2140,6 +3197,41 @@ svg {
 }
 
 @media (max-width: 520px) {
+  .marketplace-logo strong {
+    font-size: 0.94rem;
+  }
+
+  .marketplace-logo .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  .marketplace-nav.open,
+  .wholesale-grid,
+  .protection-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-actions,
+  .wholesale-preview-actions,
+  .card-actions,
+  .product-purchase-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .seller-card,
+  .buyer-protection-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .seller-card button,
+  .buyer-protection-card button {
+    width: 100%;
+    margin-left: 0;
+  }
+
   .auth-gate-shell {
     padding: 18px;
   }

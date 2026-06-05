@@ -1,0 +1,8 @@
+﻿{
+  "appId": "com.markethub.app",
+  "appName": "MarketHub",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
